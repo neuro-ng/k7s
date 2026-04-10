@@ -1,0 +1,171 @@
+# k7s release pipeline — Phase 14.4 (extended)
+#
+# Triggered on version tags (v*.*.*).
+# Builds cross-platform binaries, packages shell completions, and creates
+# a GitHub Release with all assets attached.
+#
+# Targets:
+#   Linux   x86_64   (glibc via musl for maximum compatibility)
+#   Linux   aarch64  (ARM servers / Raspberry Pi 4)
+#   macOS   x86_64   (Intel Macs)
+#   macOS   aarch64  (Apple Silicon)
+
+name: Release
+
+on:
+  push:
+    tags: ['v*.*.*']
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+
+jobs:
+  # ── Build cross-platform binaries ──────────────────────────────────────────
+  build:
+    name: Build ${{ matrix.target }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: x86_64-unknown-linux-musl
+            os: ubuntu-latest
+            use_cross: true
+            archive_ext: tar.gz
+
+          - target: aarch64-unknown-linux-musl
+            os: ubuntu-latest
+            use_cross: true
+            archive_ext: tar.gz
+
+          - target: x86_64-apple-darwin
+            os: macos-latest
+            use_cross: false
+            archive_ext: tar.gz
+
+          - target: aarch64-apple-darwin
+            os: macos-latest
+            use_cross: false
+            archive_ext: tar.gz
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            target/
+          key: ${{ runner.os }}-${{ matrix.target }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Install cross (Linux musl targets)
+        if: matrix.use_cross
+        run: cargo install cross --git https://github.com/cross-rs/cross
+
+      - name: Build release binary
+        run: |
+          if [ "${{ matrix.use_cross }}" = "true" ]; then
+            cross build --release --target ${{ matrix.target }}
+          else
+            cargo build --release --target ${{ matrix.target }}
+          fi
+
+      - name: Collect shell completions
+        run: |
+          mkdir -p dist/completions
+          # completions are written to OUT_DIR by build.rs; find them.
+          find target -path "*/build/k7s-*/out/completions" -type d | head -1 | \
+            xargs -I{} cp -r {}/* dist/completions/ || echo "completions not found (non-fatal)"
+
+      - name: Package archive (tar.gz)
+        run: |
+          BIN=target/${{ matrix.target }}/release/k7s
+          ARCHIVE=k7s-${{ github.ref_name }}-${{ matrix.target }}.tar.gz
+          tar czf "$ARCHIVE" -C "$(dirname $BIN)" k7s -C "$GITHUB_WORKSPACE/dist" completions
+          echo "ARCHIVE=$ARCHIVE" >> $GITHUB_ENV
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: k7s-${{ matrix.target }}
+          path: ${{ env.ARCHIVE }}
+
+  # ── Security audit ─────────────────────────────────────────────────────────
+  audit:
+    name: Security Audit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Install cargo-audit
+        run: cargo install cargo-audit
+      - name: cargo audit
+        run: cargo audit
+
+  # ── Sanitizer audit tests ───────────────────────────────────────────────────
+  sanitizer-audit:
+    name: Sanitizer Audit Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            target/
+          key: ubuntu-cargo-${{ hashFiles('**/Cargo.lock') }}
+      - name: Run sanitizer audit tests
+        run: cargo test --test sanitizer_audit
+
+  # ── Create GitHub Release ───────────────────────────────────────────────────
+  release:
+    name: Create Release
+    needs: [build, sanitizer-audit]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: dist/
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true
+          files: dist/**/*.tar.gz
+          body: |
+            ## k7s ${{ github.ref_name }}
+
+            ### Installation
+
+            **Linux x86_64 (musl — most compatible)**
+            ```bash
+            curl -L https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/k7s-${{ github.ref_name }}-x86_64-unknown-linux-musl.tar.gz | tar xz
+            sudo mv k7s /usr/local/bin/
+            ```
+
+            **macOS (Apple Silicon)**
+            ```bash
+            curl -L https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/k7s-${{ github.ref_name }}-aarch64-apple-darwin.tar.gz | tar xz
+            sudo mv k7s /usr/local/bin/
+            ```
+
+            ### Shell completions
+            Each archive contains a `completions/` directory with bash, zsh, fish, and PowerShell scripts.
