@@ -69,11 +69,13 @@ pub fn dump(snapshot: &TableSnapshot, path: &Path, format: DumpFormat) -> anyhow
 pub fn default_path(state_dir: &Path, resource: &str, format: DumpFormat) -> PathBuf {
     let ext = match format {
         DumpFormat::Text => "txt",
-        DumpFormat::Csv  => "csv",
+        DumpFormat::Csv => "csv",
     };
     // Use a filesystem-safe timestamp (replace `:` with `-`).
     let ts = chrono::Local::now().format("%Y-%m-%dT%H-%M-%S").to_string();
-    state_dir.join("dumps").join(format!("{resource}_{ts}.{ext}"))
+    state_dir
+        .join("dumps")
+        .join(format!("{resource}_{ts}.{ext}"))
 }
 
 // ─── Formatters ───────────────────────────────────────────────────────────────
@@ -93,7 +95,11 @@ fn render_text(snap: &TableSnapshot) -> String {
     let mut out = String::new();
 
     write_padded_row(&mut out, &snap.headers, &widths);
-    let sep: String = widths.iter().map(|&w| "-".repeat(w)).collect::<Vec<_>>().join("  ");
+    let sep: String = widths
+        .iter()
+        .map(|&w| "-".repeat(w))
+        .collect::<Vec<_>>()
+        .join("  ");
     out.push_str(&sep);
     out.push('\n');
 
@@ -108,7 +114,9 @@ fn render_text(snap: &TableSnapshot) -> String {
 }
 
 fn write_padded_row(out: &mut String, cells: &[String], widths: &[usize]) {
-    let parts: Vec<String> = cells.iter().enumerate()
+    let parts: Vec<String> = cells
+        .iter()
+        .enumerate()
         .map(|(i, cell)| {
             let w = widths.get(i).copied().unwrap_or(cell.len());
             format!("{cell:<w$}")
@@ -130,7 +138,8 @@ fn render_csv(snap: &TableSnapshot) -> String {
 }
 
 fn csv_row(cells: &[String]) -> String {
-    cells.iter()
+    cells
+        .iter()
         .map(|c| {
             if c.contains(',') || c.contains('"') || c.contains('\n') {
                 format!("\"{}\"", c.replace('"', "\"\""))
@@ -152,8 +161,14 @@ mod tests {
         TableSnapshot {
             headers: vec!["NAME".into(), "STATUS".into(), "AGE".into()],
             rows: vec![
-                RenderedRow { cells: vec!["nginx".into(), "Running".into(), "5d".into()], age_secs: 0 },
-                RenderedRow { cells: vec!["redis".into(), "Pending".into(), "1h".into()], age_secs: 0 },
+                RenderedRow {
+                    cells: vec!["nginx".into(), "Running".into(), "5d".into()],
+                    age_secs: 0,
+                },
+                RenderedRow {
+                    cells: vec!["redis".into(), "Pending".into(), "1h".into()],
+                    age_secs: 0,
+                },
             ],
             resource: "pods".into(),
             namespace: Some("default".into()),
@@ -206,8 +221,11 @@ mod tests {
     #[test]
     fn format_from_path() {
         assert_eq!(DumpFormat::from_path(Path::new("out.csv")), DumpFormat::Csv);
-        assert_eq!(DumpFormat::from_path(Path::new("out.txt")), DumpFormat::Text);
-        assert_eq!(DumpFormat::from_path(Path::new("out")),     DumpFormat::Text);
+        assert_eq!(
+            DumpFormat::from_path(Path::new("out.txt")),
+            DumpFormat::Text
+        );
+        assert_eq!(DumpFormat::from_path(Path::new("out")), DumpFormat::Text);
     }
 
     #[test]

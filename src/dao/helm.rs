@@ -29,22 +29,22 @@ pub enum HelmError {
 /// A deployed Helm release.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct HelmRelease {
-    pub name:        String,
-    pub namespace:   String,
-    pub revision:    String,
-    pub updated:     String,
-    pub status:      String,
-    pub chart:       String,
+    pub name: String,
+    pub namespace: String,
+    pub revision: String,
+    pub updated: String,
+    pub status: String,
+    pub chart: String,
     pub app_version: String,
 }
 
 /// A single entry in `helm history`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct HelmHistoryEntry {
-    pub revision:    u64,
-    pub updated:     String,
-    pub status:      String,
-    pub chart:       String,
+    pub revision: u64,
+    pub updated: String,
+    pub status: String,
+    pub chart: String,
     pub app_version: String,
     pub description: String,
 }

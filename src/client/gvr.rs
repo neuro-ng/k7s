@@ -71,31 +71,73 @@ impl fmt::Display for Gvr {
 pub mod well_known {
     use super::Gvr;
 
-    pub fn pods() -> Gvr { Gvr::core("v1", "pods") }
-    pub fn nodes() -> Gvr { Gvr::core("v1", "nodes") }
-    pub fn namespaces() -> Gvr { Gvr::core("v1", "namespaces") }
-    pub fn services() -> Gvr { Gvr::core("v1", "services") }
-    pub fn config_maps() -> Gvr { Gvr::core("v1", "configmaps") }
-    pub fn secrets() -> Gvr { Gvr::core("v1", "secrets") }
-    pub fn events() -> Gvr { Gvr::core("v1", "events") }
-    pub fn persistent_volumes() -> Gvr { Gvr::core("v1", "persistentvolumes") }
-    pub fn persistent_volume_claims() -> Gvr { Gvr::core("v1", "persistentvolumeclaims") }
-    pub fn service_accounts() -> Gvr { Gvr::core("v1", "serviceaccounts") }
+    pub fn pods() -> Gvr {
+        Gvr::core("v1", "pods")
+    }
+    pub fn nodes() -> Gvr {
+        Gvr::core("v1", "nodes")
+    }
+    pub fn namespaces() -> Gvr {
+        Gvr::core("v1", "namespaces")
+    }
+    pub fn services() -> Gvr {
+        Gvr::core("v1", "services")
+    }
+    pub fn config_maps() -> Gvr {
+        Gvr::core("v1", "configmaps")
+    }
+    pub fn secrets() -> Gvr {
+        Gvr::core("v1", "secrets")
+    }
+    pub fn events() -> Gvr {
+        Gvr::core("v1", "events")
+    }
+    pub fn persistent_volumes() -> Gvr {
+        Gvr::core("v1", "persistentvolumes")
+    }
+    pub fn persistent_volume_claims() -> Gvr {
+        Gvr::core("v1", "persistentvolumeclaims")
+    }
+    pub fn service_accounts() -> Gvr {
+        Gvr::core("v1", "serviceaccounts")
+    }
 
-    pub fn deployments() -> Gvr { Gvr::new("apps", "v1", "deployments") }
-    pub fn stateful_sets() -> Gvr { Gvr::new("apps", "v1", "statefulsets") }
-    pub fn daemon_sets() -> Gvr { Gvr::new("apps", "v1", "daemonsets") }
-    pub fn replica_sets() -> Gvr { Gvr::new("apps", "v1", "replicasets") }
+    pub fn deployments() -> Gvr {
+        Gvr::new("apps", "v1", "deployments")
+    }
+    pub fn stateful_sets() -> Gvr {
+        Gvr::new("apps", "v1", "statefulsets")
+    }
+    pub fn daemon_sets() -> Gvr {
+        Gvr::new("apps", "v1", "daemonsets")
+    }
+    pub fn replica_sets() -> Gvr {
+        Gvr::new("apps", "v1", "replicasets")
+    }
 
-    pub fn jobs() -> Gvr { Gvr::new("batch", "v1", "jobs") }
-    pub fn cron_jobs() -> Gvr { Gvr::new("batch", "v1", "cronjobs") }
+    pub fn jobs() -> Gvr {
+        Gvr::new("batch", "v1", "jobs")
+    }
+    pub fn cron_jobs() -> Gvr {
+        Gvr::new("batch", "v1", "cronjobs")
+    }
 
-    pub fn ingresses() -> Gvr { Gvr::new("networking.k8s.io", "v1", "ingresses") }
-    pub fn network_policies() -> Gvr { Gvr::new("networking.k8s.io", "v1", "networkpolicies") }
+    pub fn ingresses() -> Gvr {
+        Gvr::new("networking.k8s.io", "v1", "ingresses")
+    }
+    pub fn network_policies() -> Gvr {
+        Gvr::new("networking.k8s.io", "v1", "networkpolicies")
+    }
 
-    pub fn roles() -> Gvr { Gvr::new("rbac.authorization.k8s.io", "v1", "roles") }
-    pub fn role_bindings() -> Gvr { Gvr::new("rbac.authorization.k8s.io", "v1", "rolebindings") }
-    pub fn cluster_roles() -> Gvr { Gvr::new("rbac.authorization.k8s.io", "v1", "clusterroles") }
+    pub fn roles() -> Gvr {
+        Gvr::new("rbac.authorization.k8s.io", "v1", "roles")
+    }
+    pub fn role_bindings() -> Gvr {
+        Gvr::new("rbac.authorization.k8s.io", "v1", "rolebindings")
+    }
+    pub fn cluster_roles() -> Gvr {
+        Gvr::new("rbac.authorization.k8s.io", "v1", "clusterroles")
+    }
     pub fn cluster_role_bindings() -> Gvr {
         Gvr::new("rbac.authorization.k8s.io", "v1", "clusterrolebindings")
     }

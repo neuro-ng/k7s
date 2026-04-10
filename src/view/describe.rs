@@ -6,7 +6,9 @@
 use ratatui::layout::Rect;
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, Borders, Paragraph, Scrollbar, ScrollbarOrientation, ScrollbarState};
+use ratatui::widgets::{
+    Block, Borders, Paragraph, Scrollbar, ScrollbarOrientation, ScrollbarState,
+};
 use ratatui::Frame;
 
 /// A scrollable read-only text view for describe / YAML output.
@@ -54,14 +56,18 @@ impl DescribeView {
         self.scroll = (self.scroll + amount).min(max);
     }
 
-    pub fn top(&mut self) { self.scroll = 0; }
+    pub fn top(&mut self) {
+        self.scroll = 0;
+    }
 
     pub fn bottom(&mut self) {
         self.scroll = self.lines.len().saturating_sub(1);
     }
 
     /// Number of content lines.
-    pub fn line_count(&self) -> usize { self.lines.len() }
+    pub fn line_count(&self) -> usize {
+        self.lines.len()
+    }
 
     /// Render into the given frame area.
     pub fn render(&self, frame: &mut Frame, area: Rect) {
@@ -87,8 +93,7 @@ impl DescribeView {
 
         // Scrollbar on the right edge.
         if self.lines.len() > inner.height as usize {
-            let mut scroll_state = ScrollbarState::new(self.lines.len())
-                .position(self.scroll);
+            let mut scroll_state = ScrollbarState::new(self.lines.len()).position(self.scroll);
             let scrollbar = Scrollbar::new(ScrollbarOrientation::VerticalRight);
             frame.render_stateful_widget(scrollbar, area, &mut scroll_state);
         }
@@ -101,8 +106,14 @@ fn style_line(line: &str) -> Line<'_> {
     if let Some(colon_pos) = line.find(':') {
         let before = &line[..colon_pos];
         // Only colour if the prefix is all identifier-like characters (no leading spaces means top-level key).
-        if !before.trim_start().is_empty() && before.chars().all(|c| c.is_alphanumeric() || c == '_' || c == '-' || c == ' ') {
-            let key_style = Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD);
+        if !before.trim_start().is_empty()
+            && before
+                .chars()
+                .all(|c| c.is_alphanumeric() || c == '_' || c == '-' || c == ' ')
+        {
+            let key_style = Style::default()
+                .fg(Color::Yellow)
+                .add_modifier(Modifier::BOLD);
             let val_style = Style::default().fg(Color::White);
             return Line::from(vec![
                 Span::styled(before.to_owned() + ":", key_style),
@@ -115,7 +126,9 @@ fn style_line(line: &str) -> Line<'_> {
     if line.ends_with(':') && !line.starts_with(' ') {
         return Line::from(Span::styled(
             line.to_owned(),
-            Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD),
+            Style::default()
+                .fg(Color::Cyan)
+                .add_modifier(Modifier::BOLD),
         ));
     }
 

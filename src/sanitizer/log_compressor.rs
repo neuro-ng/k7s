@@ -68,15 +68,22 @@ impl CompressionStats {
         if self.total_lines == 0 {
             return "N/A".to_owned();
         }
-        let mut parts: Vec<String> = [LogLevel::Error, LogLevel::Warn, LogLevel::Info, LogLevel::Debug]
-            .iter()
-            .filter_map(|&lvl| {
-                let count = self.level_counts.get(&lvl).copied().unwrap_or(0);
-                if count == 0 { return None; }
-                let pct = (count as f64 / self.total_lines as f64 * 100.0) as u64;
-                Some(format!("{}:{}%", lvl.as_str(), pct))
-            })
-            .collect();
+        let mut parts: Vec<String> = [
+            LogLevel::Error,
+            LogLevel::Warn,
+            LogLevel::Info,
+            LogLevel::Debug,
+        ]
+        .iter()
+        .filter_map(|&lvl| {
+            let count = self.level_counts.get(&lvl).copied().unwrap_or(0);
+            if count == 0 {
+                return None;
+            }
+            let pct = (count as f64 / self.total_lines as f64 * 100.0) as u64;
+            Some(format!("{}:{}%", lvl.as_str(), pct))
+        })
+        .collect();
         if parts.is_empty() {
             parts.push("?:100%".to_owned());
         }
@@ -201,7 +208,11 @@ fn detect_level(line: &str) -> LogLevel {
 }
 
 fn level_from_word(s: &str) -> LogLevel {
-    let word = s.split_whitespace().next().unwrap_or("").trim_matches(|c: char| !c.is_alphanumeric());
+    let word = s
+        .split_whitespace()
+        .next()
+        .unwrap_or("")
+        .trim_matches(|c: char| !c.is_alphanumeric());
     match word {
         "error" | "err" | "fatal" => LogLevel::Error,
         "warning" | "warn" => LogLevel::Warn,
@@ -259,10 +270,7 @@ mod tests {
 
     #[test]
     fn compress_deduplicates_identical_lines() {
-        let lines: Vec<String> = vec![
-            "ERROR: connection refused".to_owned();
-            100
-        ];
+        let lines: Vec<String> = vec!["ERROR: connection refused".to_owned(); 100];
         let result = compress(&lines, 50);
         assert_eq!(result.stats.total_lines, 100);
         assert_eq!(result.lines.len(), 1);

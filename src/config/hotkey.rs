@@ -15,9 +15,9 @@ use serde::{Deserialize, Serialize};
 #[serde(rename_all = "camelCase")]
 pub struct HotkeyBinding {
     /// The action to perform (e.g. `"viewPods"`, `"chat"`, `"quit"`).
-    pub action:       String,
+    pub action: String,
     /// Optional description shown in the hints bar.
-    pub description:  Option<String>,
+    pub description: Option<String>,
 }
 
 /// The full hotkey configuration loaded from `hotkeys.yaml`.
@@ -70,13 +70,17 @@ mod tests {
     fn load_valid_hotkeys() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("hotkeys.yaml");
-        std::fs::write(&path, r#"
+        std::fs::write(
+            &path,
+            r#"
 F1:
   action: viewPods
   description: "Open pod list"
 ctrl-k:
   action: chat
-"#).unwrap();
+"#,
+        )
+        .unwrap();
         let cfg = HotkeyConfig::load(&path).unwrap();
         assert_eq!(cfg.bindings.len(), 2);
         let b = cfg.action_for("F1").unwrap();
@@ -88,12 +92,16 @@ ctrl-k:
     fn sorted_keys_are_alphabetical() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("hotkeys.yaml");
-        std::fs::write(&path, r#"
+        std::fs::write(
+            &path,
+            r#"
 z-key:
   action: last
 a-key:
   action: first
-"#).unwrap();
+"#,
+        )
+        .unwrap();
         let cfg = HotkeyConfig::load(&path).unwrap();
         let keys: Vec<_> = cfg.sorted_keys().into_iter().map(|(k, _)| k).collect();
         assert_eq!(keys, vec!["a-key", "z-key"]);

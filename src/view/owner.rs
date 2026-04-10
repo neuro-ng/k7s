@@ -51,7 +51,7 @@ pub fn resolve_owners(resource: &Value, namespace: &str) -> Vec<OwnerRef> {
         .and_then(|v| v.as_array())
     {
         Some(arr) => arr,
-        None      => return vec![],
+        None => return vec![],
     };
 
     refs.iter()
@@ -61,10 +61,10 @@ pub fn resolve_owners(resource: &Value, namespace: &str) -> Vec<OwnerRef> {
 
 fn parse_owner_ref(r: &Value, namespace: &str) -> Option<OwnerRef> {
     let api_version = r["apiVersion"].as_str()?.to_string();
-    let kind        = r["kind"].as_str()?.to_string();
-    let name        = r["name"].as_str()?.to_string();
-    let uid         = r["uid"].as_str().unwrap_or("").to_string();
-    let controller  = r["controller"].as_bool().unwrap_or(false);
+    let kind = r["kind"].as_str()?.to_string();
+    let name = r["name"].as_str()?.to_string();
+    let uid = r["uid"].as_str().unwrap_or("").to_string();
+    let controller = r["controller"].as_bool().unwrap_or(false);
 
     Some(OwnerRef {
         api_version,
@@ -93,35 +93,35 @@ pub fn gvr_for_kind(kind: &str, api_version: &str) -> Option<Gvr> {
 fn split_api_version(av: &str) -> (&str, &str) {
     match av.split_once('/') {
         Some((g, v)) => (g, v),
-        None         => ("", av),
+        None => ("", av),
     }
 }
 
 /// Map a `kind` string to the plural resource name used in GVR.
 fn kind_to_resource(kind: &str) -> Option<&'static str> {
     match kind {
-        "Pod"                   => Some("pods"),
-        "ReplicaSet"            => Some("replicasets"),
-        "Deployment"            => Some("deployments"),
-        "StatefulSet"           => Some("statefulsets"),
-        "DaemonSet"             => Some("daemonsets"),
-        "Job"                   => Some("jobs"),
-        "CronJob"               => Some("cronjobs"),
-        "Service"               => Some("services"),
-        "Node"                  => Some("nodes"),
-        "Namespace"             => Some("namespaces"),
-        "ConfigMap"             => Some("configmaps"),
-        "Secret"                => Some("secrets"),
-        "ServiceAccount"        => Some("serviceaccounts"),
-        "Role"                  => Some("roles"),
-        "RoleBinding"           => Some("rolebindings"),
-        "ClusterRole"           => Some("clusterroles"),
-        "ClusterRoleBinding"    => Some("clusterrolebindings"),
-        "PersistentVolume"      => Some("persistentvolumes"),
+        "Pod" => Some("pods"),
+        "ReplicaSet" => Some("replicasets"),
+        "Deployment" => Some("deployments"),
+        "StatefulSet" => Some("statefulsets"),
+        "DaemonSet" => Some("daemonsets"),
+        "Job" => Some("jobs"),
+        "CronJob" => Some("cronjobs"),
+        "Service" => Some("services"),
+        "Node" => Some("nodes"),
+        "Namespace" => Some("namespaces"),
+        "ConfigMap" => Some("configmaps"),
+        "Secret" => Some("secrets"),
+        "ServiceAccount" => Some("serviceaccounts"),
+        "Role" => Some("roles"),
+        "RoleBinding" => Some("rolebindings"),
+        "ClusterRole" => Some("clusterroles"),
+        "ClusterRoleBinding" => Some("clusterrolebindings"),
+        "PersistentVolume" => Some("persistentvolumes"),
         "PersistentVolumeClaim" => Some("persistentvolumeclaims"),
-        "Ingress"               => Some("ingresses"),
+        "Ingress" => Some("ingresses"),
         "HorizontalPodAutoscaler" => Some("horizontalpodautoscalers"),
-        _                       => None,
+        _ => None,
     }
 }
 
@@ -205,11 +205,11 @@ mod tests {
     fn display_label() {
         let o = OwnerRef {
             api_version: "apps/v1".into(),
-            kind:        "Deployment".into(),
-            name:        "my-app".into(),
-            namespace:   "default".into(),
-            uid:         "123".into(),
-            controller:  true,
+            kind: "Deployment".into(),
+            name: "my-app".into(),
+            namespace: "default".into(),
+            uid: "123".into(),
+            controller: true,
         };
         assert_eq!(o.display_label(), "Deployment/my-app");
     }

@@ -1,8 +1,8 @@
 use ratatui::layout::Constraint;
 use serde_json::Value;
 
-use crate::client::Gvr;
 use crate::client::gvr::well_known;
+use crate::client::Gvr;
 use crate::render::{age_from_obj, meta_name, ColumnDef, RenderedRow, Renderer};
 
 pub struct NodeRenderer {
@@ -15,10 +15,10 @@ impl NodeRenderer {
         Self {
             gvr: well_known::nodes(),
             columns: vec![
-                ColumnDef::new("NAME",    Constraint::Min(20)),
-                ColumnDef::new("STATUS",  Constraint::Length(10)),
-                ColumnDef::new("ROLES",   Constraint::Min(14)),
-                ColumnDef::new("AGE",     Constraint::Length(6)),
+                ColumnDef::new("NAME", Constraint::Min(20)),
+                ColumnDef::new("STATUS", Constraint::Length(10)),
+                ColumnDef::new("ROLES", Constraint::Min(14)),
+                ColumnDef::new("AGE", Constraint::Length(6)),
                 ColumnDef::new("VERSION", Constraint::Length(12)),
             ],
         }
@@ -26,12 +26,18 @@ impl NodeRenderer {
 }
 
 impl Default for NodeRenderer {
-    fn default() -> Self { Self::new() }
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl Renderer for NodeRenderer {
-    fn gvr(&self) -> &Gvr { &self.gvr }
-    fn columns(&self) -> &[ColumnDef] { &self.columns }
+    fn gvr(&self) -> &Gvr {
+        &self.gvr
+    }
+    fn columns(&self) -> &[ColumnDef] {
+        &self.columns
+    }
 
     fn render(&self, obj: &Value) -> RenderedRow {
         let name = meta_name(obj).to_owned();
@@ -53,9 +59,7 @@ impl Renderer for NodeRenderer {
 
 /// Determine node readiness from `conditions`.
 fn node_status(obj: &Value) -> String {
-    let conditions = obj
-        .pointer("/status/conditions")
-        .and_then(|v| v.as_array());
+    let conditions = obj.pointer("/status/conditions").and_then(|v| v.as_array());
 
     if let Some(conds) = conditions {
         // Check for specific problem conditions first.
@@ -83,7 +87,11 @@ fn node_status(obj: &Value) -> String {
     }
 
     // Check if node is unschedulable (cordoned).
-    if obj.pointer("/spec/unschedulable").and_then(|v| v.as_bool()).unwrap_or(false) {
+    if obj
+        .pointer("/spec/unschedulable")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false)
+    {
         return "SchedulingDisabled".to_owned();
     }
 

@@ -34,11 +34,11 @@ pub struct FeatureGates {
 impl Default for FeatureGates {
     fn default() -> Self {
         Self {
-            node_shell:   false,
-            image_scans:  false,
+            node_shell: false,
+            image_scans: false,
             port_forward: true,
-            pod_exec:     true,
-            ai_chat:      true,
+            pod_exec: true,
+            ai_chat: true,
         }
     }
 }
@@ -52,28 +52,28 @@ impl Default for FeatureGates {
 #[serde(rename_all = "camelCase", default)]
 pub struct ClusterConfig {
     /// Display name for this cluster (overrides the context name in the header).
-    pub display_name:    Option<String>,
+    pub display_name: Option<String>,
     /// Default namespace when entering the context.
     pub default_namespace: String,
     /// Feature gates specific to this cluster.
-    pub features:        FeatureGates,
+    pub features: FeatureGates,
     /// Per-namespace view preferences: namespace → last-used resource.
     pub namespace_prefs: HashMap<String, NamespacePrefs>,
     /// Whether to enforce read-only mode for this cluster.
-    pub read_only:       Option<bool>,
+    pub read_only: Option<bool>,
     /// Custom skin to use for this cluster (overrides global setting).
-    pub skin:            Option<String>,
+    pub skin: Option<String>,
 }
 
 impl Default for ClusterConfig {
     fn default() -> Self {
         Self {
-            display_name:      None,
+            display_name: None,
             default_namespace: "default".to_owned(),
-            features:          FeatureGates::default(),
-            namespace_prefs:   HashMap::new(),
-            read_only:         None,
-            skin:              None,
+            features: FeatureGates::default(),
+            namespace_prefs: HashMap::new(),
+            read_only: None,
+            skin: None,
         }
     }
 }
@@ -85,7 +85,7 @@ pub struct NamespacePrefs {
     /// Last-used resource alias in this namespace.
     pub active_resource: Option<String>,
     /// Whether to show all namespaces.
-    pub all_namespaces:  bool,
+    pub all_namespaces: bool,
 }
 
 impl ClusterConfig {
@@ -121,7 +121,8 @@ impl ClusterConfig {
         context: &str,
         config_dir: &Path,
     ) -> anyhow::Result<()> {
-        let prefs = self.namespace_prefs
+        let prefs = self
+            .namespace_prefs
             .entry(namespace.to_owned())
             .or_default();
         prefs.active_resource = Some(resource.to_owned());
@@ -131,10 +132,19 @@ impl ClusterConfig {
     /// Path to the cluster config file.
     pub fn path_for(context: &str, config_dir: &Path) -> PathBuf {
         // Sanitize context name to be safe as a filename.
-        let safe_name: String = context.chars()
-            .map(|c| if c.is_alphanumeric() || c == '-' || c == '_' || c == '.' { c } else { '_' })
+        let safe_name: String = context
+            .chars()
+            .map(|c| {
+                if c.is_alphanumeric() || c == '-' || c == '_' || c == '.' {
+                    c
+                } else {
+                    '_'
+                }
+            })
             .collect();
-        config_dir.join("clusters").join(format!("{safe_name}.yaml"))
+        config_dir
+            .join("clusters")
+            .join(format!("{safe_name}.yaml"))
     }
 }
 
@@ -142,14 +152,14 @@ impl ClusterConfig {
 
 /// Runtime cache of per-cluster configs, keyed by context name.
 pub struct ClusterRegistry {
-    configs:    HashMap<String, ClusterConfig>,
+    configs: HashMap<String, ClusterConfig>,
     config_dir: PathBuf,
 }
 
 impl ClusterRegistry {
     pub fn new(config_dir: PathBuf) -> Self {
         Self {
-            configs:    HashMap::new(),
+            configs: HashMap::new(),
             config_dir,
         }
     }
@@ -157,8 +167,7 @@ impl ClusterRegistry {
     /// Get (or lazily load) config for a context.
     pub fn get(&mut self, context: &str) -> &ClusterConfig {
         if !self.configs.contains_key(context) {
-            let cfg = ClusterConfig::load(context, &self.config_dir)
-                .unwrap_or_default();
+            let cfg = ClusterConfig::load(context, &self.config_dir).unwrap_or_default();
             self.configs.insert(context.to_owned(), cfg);
         }
         self.configs.get(context).unwrap()
@@ -167,8 +176,7 @@ impl ClusterRegistry {
     /// Get a mutable reference to the config for a context.
     pub fn get_mut(&mut self, context: &str) -> &mut ClusterConfig {
         if !self.configs.contains_key(context) {
-            let cfg = ClusterConfig::load(context, &self.config_dir)
-                .unwrap_or_default();
+            let cfg = ClusterConfig::load(context, &self.config_dir).unwrap_or_default();
             self.configs.insert(context.to_owned(), cfg);
         }
         self.configs.get_mut(context).unwrap()
@@ -220,11 +228,14 @@ mod tests {
     fn set_active_resource_persists() {
         let dir = tempfile::tempdir().unwrap();
         let mut cfg = ClusterConfig::default();
-        cfg.set_active_resource("kube-system", "pods", "my-ctx", dir.path()).unwrap();
+        cfg.set_active_resource("kube-system", "pods", "my-ctx", dir.path())
+            .unwrap();
 
         let loaded = ClusterConfig::load("my-ctx", dir.path()).unwrap();
         assert_eq!(
-            loaded.namespace_prefs.get("kube-system")
+            loaded
+                .namespace_prefs
+                .get("kube-system")
                 .and_then(|p| p.active_resource.as_deref()),
             Some("pods")
         );

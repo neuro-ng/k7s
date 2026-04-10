@@ -76,11 +76,8 @@ pub trait Accessor: Send + Sync {
     /// List all resources, optionally scoped to a namespace.
     ///
     /// Returns `None` namespace to list across all namespaces.
-    async fn list(
-        &self,
-        client: &Client,
-        namespace: Option<&str>,
-    ) -> anyhow::Result<Vec<Resource>>;
+    async fn list(&self, client: &Client, namespace: Option<&str>)
+        -> anyhow::Result<Vec<Resource>>;
 
     /// Fetch a single resource by namespace + name.
     async fn get(
@@ -166,12 +163,7 @@ pub trait Scalable: Accessor {
 pub trait Restartable: Accessor {
     /// Annotates the pod template with the current timestamp to trigger
     /// a rolling restart without changing the spec.
-    async fn restart(
-        &self,
-        client: &Client,
-        namespace: &str,
-        name: &str,
-    ) -> anyhow::Result<()>;
+    async fn restart(&self, client: &Client, namespace: &str, name: &str) -> anyhow::Result<()>;
 }
 
 /// Metadata about a registered resource type.

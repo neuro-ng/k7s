@@ -68,10 +68,7 @@ pub async fn can_i(
         .await
         .map_err(ClientError::Api)?;
 
-    let allowed = response
-        .status
-        .map(|s| s.allowed)
-        .unwrap_or(false);
+    let allowed = response.status.map(|s| s.allowed).unwrap_or(false);
 
     tracing::debug!(
         verb = verb.as_str(),

@@ -17,9 +17,9 @@ use crate::sanitizer::{Redactor, SafeMetadata};
 /// A complete message exchange result.
 #[derive(Debug, Clone)]
 pub struct Exchange {
-    pub user_message:    String,
+    pub user_message: String,
     pub assistant_reply: String,
-    pub tokens_used:     u32,
+    pub tokens_used: u32,
 }
 
 /// Error types for session-level failures.
@@ -37,10 +37,10 @@ pub enum SessionError {
 
 /// An active AI chat session with conversation history and budget tracking.
 pub struct ChatSession {
-    history:  Vec<Message>,
-    budget:   TokenBudget,
+    history: Vec<Message>,
+    budget: TokenBudget,
     /// Accumulated sanitized cluster context injected into the system prompt.
-    context:  Vec<SafeMetadata>,
+    context: Vec<SafeMetadata>,
     /// Redactor applied to user free-text input before it enters the LLM stream.
     ///
     /// # Security
@@ -61,7 +61,7 @@ impl ChatSession {
             .expect("SanitizerConfig custom_patterns must contain valid regex");
         Self {
             history: Vec::new(),
-            budget:  TokenBudget::from_config(budget_cfg),
+            budget: TokenBudget::from_config(budget_cfg),
             context: Vec::new(),
             redactor,
         }
@@ -96,7 +96,8 @@ impl ChatSession {
 
         // Build the full message list for this request.
         let messages = self.build_messages(&user_msg);
-        let estimated = messages.iter()
+        let estimated = messages
+            .iter()
             .map(|m| estimate_tokens(&m.content))
             .sum::<u32>();
 
@@ -108,7 +109,7 @@ impl ChatSession {
             BudgetCheck::Exhausted => {
                 return Err(SessionError::BudgetExhausted {
                     used: self.budget.used(),
-                    max:  self.budget.max_session(),
+                    max: self.budget.max_session(),
                 });
             }
             BudgetCheck::QueryTooLarge { tokens, limit } => {
@@ -128,15 +129,31 @@ impl ChatSession {
         self.clear_context();
 
         Ok(Exchange {
-            user_message:    user_msg,
+            user_message: user_msg,
             assistant_reply: reply,
-            tokens_used:     estimated + reply_tokens,
+            tokens_used: estimated + reply_tokens,
         })
     }
 
-    pub fn history(&self) -> &[Message] { &self.history }
-    pub fn budget(&self) -> &TokenBudget { &self.budget }
-    pub fn context_len(&self) -> usize { self.context.len() }
+    pub fn history(&self) -> &[Message] {
+        &self.history
+    }
+    pub fn budget(&self) -> &TokenBudget {
+        &self.budget
+    }
+    pub fn context_len(&self) -> usize {
+        self.context.len()
+    }
+
+    /// Append a user turn to history (used when the caller dispatches the send itself).
+    pub fn history_push_user(&mut self, text: String) {
+        self.history.push(Message::user(text));
+    }
+
+    /// Append an assistant turn to history (used when the caller receives the reply itself).
+    pub fn history_push_assistant(&mut self, text: String) {
+        self.history.push(Message::assistant(text));
+    }
 
     /// Build the full message list for a send — exposed for streaming.
     pub fn messages_for_send(&self, user_message: &str) -> Vec<Message> {
@@ -152,13 +169,15 @@ impl ChatSession {
             "You help diagnose issues, recommend optimisations, and explain cluster state. ",
             "All cluster data you receive has been sanitised — secrets, tokens, and ",
             "credentials have been removed. Never speculate about secret values."
-        ).to_owned();
+        )
+        .to_owned();
 
         if !self.context.is_empty() {
             system.push_str("\n\n## Current cluster context (sanitised)\n\n");
             for meta in &self.context {
                 if let Ok(json) = serde_json::to_string_pretty(&meta.fields) {
-                    system.push_str(&format!("### {} {}/{}\n```json\n{}\n```\n\n",
+                    system.push_str(&format!(
+                        "### {} {}/{}\n```json\n{}\n```\n\n",
                         meta.gvr,
                         meta.namespace.as_deref().unwrap_or(""),
                         meta.name,

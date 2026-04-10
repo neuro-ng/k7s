@@ -132,19 +132,37 @@ impl BrowserView {
     }
 
     /// Forward cursor movement to the table.
-    pub fn up(&mut self) { self.table.up(); }
-    pub fn down(&mut self) { self.table.down(); }
-    pub fn page_up(&mut self) { self.table.page_up(20); }
-    pub fn page_down(&mut self) { self.table.page_down(20); }
-    pub fn top(&mut self) { self.table.top(); }
-    pub fn bottom(&mut self) { self.table.bottom(); }
+    pub fn up(&mut self) {
+        self.table.up();
+    }
+    pub fn down(&mut self) {
+        self.table.down();
+    }
+    pub fn page_up(&mut self) {
+        self.table.page_up(20);
+    }
+    pub fn page_down(&mut self) {
+        self.table.page_down(20);
+    }
+    pub fn top(&mut self) {
+        self.table.top();
+    }
+    pub fn bottom(&mut self) {
+        self.table.bottom();
+    }
 
-    pub fn set_filter(&mut self, f: String) { self.table.set_filter(f); }
-    pub fn clear_filter(&mut self) { self.table.set_filter(String::new()); }
+    pub fn set_filter(&mut self, f: String) {
+        self.table.set_filter(f);
+    }
+    pub fn clear_filter(&mut self) {
+        self.table.set_filter(String::new());
+    }
 
     /// The name of the currently selected resource, if any.
     pub fn selected_name(&self) -> Option<String> {
-        self.table.selected_row().and_then(|r| r.cells.first().cloned())
+        self.table
+            .selected_row()
+            .and_then(|r| r.cells.first().cloned())
     }
 }
 
@@ -152,12 +170,13 @@ impl BrowserView {
 ///
 /// Returns `None` if the resource type is not recognised.
 pub fn browser_for_resource(alias: &str, registry: &crate::dao::Registry) -> Option<BrowserView> {
-    use crate::render::{
-        CronJobRenderer, DaemonSetRenderer, DeploymentRenderer, GenericRenderer, JobRenderer,
-        NamespaceRenderer, NodeRenderer, PodRenderer, ReplicaSetRenderer, ServiceRenderer,
-        StatefulSetRenderer,
-    };
     use crate::client::gvr::well_known;
+    use crate::render::{
+        ClusterRoleBindingRenderer, ClusterRoleRenderer, ConfigMapRenderer, CronJobRenderer,
+        DaemonSetRenderer, DeploymentRenderer, EventRenderer, GenericRenderer, JobRenderer,
+        NamespaceRenderer, NodeRenderer, PodRenderer, PvRenderer, PvcRenderer, ReplicaSetRenderer,
+        RoleBindingRenderer, RoleRenderer, SecretRenderer, ServiceRenderer, StatefulSetRenderer,
+    };
 
     let meta = registry.get_by_alias(alias)?;
     let gvr = meta.gvr.clone();
@@ -165,16 +184,27 @@ pub fn browser_for_resource(alias: &str, registry: &crate::dao::Registry) -> Opt
     let namespaced = meta.namespaced;
 
     let renderer: Box<dyn Renderer> = match gvr {
-        g if g == well_known::pods()         => Box::new(PodRenderer::new()),
-        g if g == well_known::deployments()  => Box::new(DeploymentRenderer::new()),
-        g if g == well_known::stateful_sets()=> Box::new(StatefulSetRenderer::new()),
-        g if g == well_known::daemon_sets()  => Box::new(DaemonSetRenderer::new()),
+        g if g == well_known::pods() => Box::new(PodRenderer::new()),
+        g if g == well_known::deployments() => Box::new(DeploymentRenderer::new()),
+        g if g == well_known::stateful_sets() => Box::new(StatefulSetRenderer::new()),
+        g if g == well_known::daemon_sets() => Box::new(DaemonSetRenderer::new()),
         g if g == well_known::replica_sets() => Box::new(ReplicaSetRenderer::new()),
-        g if g == well_known::jobs()         => Box::new(JobRenderer::new()),
-        g if g == well_known::cron_jobs()    => Box::new(CronJobRenderer::new()),
-        g if g == well_known::namespaces()   => Box::new(NamespaceRenderer::new()),
-        g if g == well_known::nodes()        => Box::new(NodeRenderer::new()),
-        g if g == well_known::services()     => Box::new(ServiceRenderer::new()),
+        g if g == well_known::jobs() => Box::new(JobRenderer::new()),
+        g if g == well_known::cron_jobs() => Box::new(CronJobRenderer::new()),
+        g if g == well_known::namespaces() => Box::new(NamespaceRenderer::new()),
+        g if g == well_known::nodes() => Box::new(NodeRenderer::new()),
+        g if g == well_known::services() => Box::new(ServiceRenderer::new()),
+        g if g == well_known::events() => Box::new(EventRenderer::new()),
+        g if g == well_known::config_maps() => Box::new(ConfigMapRenderer::new()),
+        g if g == well_known::secrets() => Box::new(SecretRenderer::new()),
+        g if g == well_known::persistent_volumes() => Box::new(PvRenderer::new()),
+        g if g == well_known::persistent_volume_claims() => Box::new(PvcRenderer::new()),
+        g if g == well_known::roles() => Box::new(RoleRenderer::new()),
+        g if g == well_known::role_bindings() => Box::new(RoleBindingRenderer::new()),
+        g if g == well_known::cluster_roles() => Box::new(ClusterRoleRenderer::new()),
+        g if g == well_known::cluster_role_bindings() => {
+            Box::new(ClusterRoleBindingRenderer::new())
+        }
         g => Box::new(GenericRenderer::new(g, namespaced)),
     };
 

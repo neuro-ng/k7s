@@ -23,13 +23,21 @@ impl GenericRenderer {
         }
         columns.push(ColumnDef::new("STATUS", Constraint::Min(10)));
         columns.push(ColumnDef::new("AGE", Constraint::Length(6)));
-        Self { gvr, columns, namespaced }
+        Self {
+            gvr,
+            columns,
+            namespaced,
+        }
     }
 }
 
 impl Renderer for GenericRenderer {
-    fn gvr(&self) -> &Gvr { &self.gvr }
-    fn columns(&self) -> &[ColumnDef] { &self.columns }
+    fn gvr(&self) -> &Gvr {
+        &self.gvr
+    }
+    fn columns(&self) -> &[ColumnDef] {
+        &self.columns
+    }
 
     fn render(&self, obj: &Value) -> RenderedRow {
         let name = meta_name(obj).to_owned();
@@ -60,12 +68,11 @@ fn generic_status(obj: &Value) -> String {
             if c.get("type").and_then(|v| v.as_str()) == Some("Ready") {
                 return match c.get("status").and_then(|v| v.as_str()) {
                     Some("True") => "Ready".to_owned(),
-                    Some("False") => {
-                        c.get("reason")
-                            .and_then(|v| v.as_str())
-                            .unwrap_or("NotReady")
-                            .to_owned()
-                    }
+                    Some("False") => c
+                        .get("reason")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("NotReady")
+                        .to_owned(),
                     _ => "Unknown".to_owned(),
                 };
             }
@@ -73,7 +80,11 @@ fn generic_status(obj: &Value) -> String {
     }
 
     if let Some(ready) = obj.pointer("/status/ready").and_then(|v| v.as_bool()) {
-        return if ready { "Ready".to_owned() } else { "NotReady".to_owned() };
+        return if ready {
+            "Ready".to_owned()
+        } else {
+            "NotReady".to_owned()
+        };
     }
 
     "-".to_owned()

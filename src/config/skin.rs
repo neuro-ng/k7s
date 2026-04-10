@@ -46,23 +46,23 @@ impl SkinColor {
 
         // Named colour.
         match s.to_ascii_lowercase().as_str() {
-            "black"       => Color::Black,
-            "red"         => Color::Red,
-            "green"       => Color::Green,
-            "yellow"      => Color::Yellow,
-            "blue"        => Color::Blue,
-            "magenta"     => Color::Magenta,
-            "cyan"        => Color::Cyan,
+            "black" => Color::Black,
+            "red" => Color::Red,
+            "green" => Color::Green,
+            "yellow" => Color::Yellow,
+            "blue" => Color::Blue,
+            "magenta" => Color::Magenta,
+            "cyan" => Color::Cyan,
             "gray" | "grey" | "white" => Color::Gray,
             "darkgray" | "darkgrey" => Color::DarkGray,
-            "lightred"    => Color::LightRed,
-            "lightgreen"  => Color::LightGreen,
+            "lightred" => Color::LightRed,
+            "lightgreen" => Color::LightGreen,
             "lightyellow" => Color::LightYellow,
-            "lightblue"   => Color::LightBlue,
-            "lightmagenta"=> Color::LightMagenta,
-            "lightcyan"   => Color::LightCyan,
-            "reset"       => Color::Reset,
-            _             => Color::Reset,
+            "lightblue" => Color::LightBlue,
+            "lightmagenta" => Color::LightMagenta,
+            "lightcyan" => Color::LightCyan,
+            "reset" => Color::Reset,
+            _ => Color::Reset,
         }
     }
 }
@@ -91,37 +91,37 @@ pub struct Skin {
     pub name: String,
 
     // ── Header / border ──────────────────────────────────────────────
-    pub header:       ColorGroup,
-    pub border:       ColorGroup,
-    pub title:        ColorGroup,
+    pub header: ColorGroup,
+    pub border: ColorGroup,
+    pub title: ColorGroup,
 
     // ── Table ────────────────────────────────────────────────────────
     pub table_header: ColorGroup,
-    pub table_row:    ColorGroup,
-    pub table_sel:    ColorGroup,   // selected row
-    pub table_added:  ColorGroup,   // newly appeared row
-    pub table_mod:    ColorGroup,   // modified row
-    pub table_del:    ColorGroup,   // deleted (fading) row
+    pub table_row: ColorGroup,
+    pub table_sel: ColorGroup,   // selected row
+    pub table_added: ColorGroup, // newly appeared row
+    pub table_mod: ColorGroup,   // modified row
+    pub table_del: ColorGroup,   // deleted (fading) row
 
     // ── Status / flash bar ───────────────────────────────────────────
-    pub info:         ColorGroup,
-    pub warn:         ColorGroup,
-    pub error:        ColorGroup,
+    pub info: ColorGroup,
+    pub warn: ColorGroup,
+    pub error: ColorGroup,
 
     // ── Log view ─────────────────────────────────────────────────────
-    pub log_info:     ColorGroup,
-    pub log_warn:     ColorGroup,
-    pub log_error:    ColorGroup,
-    pub log_debug:    ColorGroup,
+    pub log_info: ColorGroup,
+    pub log_warn: ColorGroup,
+    pub log_error: ColorGroup,
+    pub log_debug: ColorGroup,
 
     // ── Prompt ───────────────────────────────────────────────────────
-    pub prompt:       ColorGroup,
+    pub prompt: ColorGroup,
     pub prompt_label: ColorGroup,
 
     // ── AI chat ──────────────────────────────────────────────────────
-    pub chat_user:    ColorGroup,
-    pub chat_bot:     ColorGroup,
-    pub chat_system:  ColorGroup,
+    pub chat_user: ColorGroup,
+    pub chat_bot: ColorGroup,
+    pub chat_system: ColorGroup,
 }
 
 impl Default for Skin {
@@ -134,84 +134,84 @@ impl Skin {
     /// The built-in dark theme (used when no skin is configured).
     pub fn default_dark() -> Self {
         Self {
-            name:         "dark".to_owned(),
-            header:       cg("#61afef", "#282c34"),
-            border:       cg("#4b5263", "reset"),
-            title:        cg("#e5c07b", "reset"),
+            name: "dark".to_owned(),
+            header: cg("#61afef", "#282c34"),
+            border: cg("#4b5263", "reset"),
+            title: cg("#e5c07b", "reset"),
             table_header: cg("#abb2bf", "#3e4452"),
-            table_row:    cg("#abb2bf", "reset"),
-            table_sel:    cg("#282c34", "#61afef"),
-            table_added:  cg("#98c379", "reset"),
-            table_mod:    cg("#e5c07b", "reset"),
-            table_del:    cg("#4b5263", "reset"),
-            info:         cg("#98c379", "reset"),
-            warn:         cg("#e5c07b", "reset"),
-            error:        cg("#e06c75", "reset"),
-            log_info:     cg("#abb2bf", "reset"),
-            log_warn:     cg("#e5c07b", "reset"),
-            log_error:    cg("#e06c75", "reset"),
-            log_debug:    cg("#5c6370", "reset"),
-            prompt:       cg("#abb2bf", "#3e4452"),
+            table_row: cg("#abb2bf", "reset"),
+            table_sel: cg("#282c34", "#61afef"),
+            table_added: cg("#98c379", "reset"),
+            table_mod: cg("#e5c07b", "reset"),
+            table_del: cg("#4b5263", "reset"),
+            info: cg("#98c379", "reset"),
+            warn: cg("#e5c07b", "reset"),
+            error: cg("#e06c75", "reset"),
+            log_info: cg("#abb2bf", "reset"),
+            log_warn: cg("#e5c07b", "reset"),
+            log_error: cg("#e06c75", "reset"),
+            log_debug: cg("#5c6370", "reset"),
+            prompt: cg("#abb2bf", "#3e4452"),
             prompt_label: cg("#61afef", "#3e4452"),
-            chat_user:    cg("#98c379", "reset"),
-            chat_bot:     cg("#61afef", "reset"),
-            chat_system:  cg("#5c6370", "reset"),
+            chat_user: cg("#98c379", "reset"),
+            chat_bot: cg("#61afef", "reset"),
+            chat_system: cg("#5c6370", "reset"),
         }
     }
 
     /// Dracula theme.
     pub fn dracula() -> Self {
         Self {
-            name:         "dracula".to_owned(),
-            header:       cg("#bd93f9", "#282a36"),
-            border:       cg("#6272a4", "reset"),
-            title:        cg("#f1fa8c", "reset"),
+            name: "dracula".to_owned(),
+            header: cg("#bd93f9", "#282a36"),
+            border: cg("#6272a4", "reset"),
+            title: cg("#f1fa8c", "reset"),
             table_header: cg("#f8f8f2", "#44475a"),
-            table_row:    cg("#f8f8f2", "reset"),
-            table_sel:    cg("#282a36", "#bd93f9"),
-            table_added:  cg("#50fa7b", "reset"),
-            table_mod:    cg("#ffb86c", "reset"),
-            table_del:    cg("#6272a4", "reset"),
-            info:         cg("#50fa7b", "reset"),
-            warn:         cg("#ffb86c", "reset"),
-            error:        cg("#ff5555", "reset"),
-            log_info:     cg("#f8f8f2", "reset"),
-            log_warn:     cg("#ffb86c", "reset"),
-            log_error:    cg("#ff5555", "reset"),
-            log_debug:    cg("#6272a4", "reset"),
-            prompt:       cg("#f8f8f2", "#44475a"),
+            table_row: cg("#f8f8f2", "reset"),
+            table_sel: cg("#282a36", "#bd93f9"),
+            table_added: cg("#50fa7b", "reset"),
+            table_mod: cg("#ffb86c", "reset"),
+            table_del: cg("#6272a4", "reset"),
+            info: cg("#50fa7b", "reset"),
+            warn: cg("#ffb86c", "reset"),
+            error: cg("#ff5555", "reset"),
+            log_info: cg("#f8f8f2", "reset"),
+            log_warn: cg("#ffb86c", "reset"),
+            log_error: cg("#ff5555", "reset"),
+            log_debug: cg("#6272a4", "reset"),
+            prompt: cg("#f8f8f2", "#44475a"),
             prompt_label: cg("#bd93f9", "#44475a"),
-            chat_user:    cg("#50fa7b", "reset"),
-            chat_bot:     cg("#8be9fd", "reset"),
-            chat_system:  cg("#6272a4", "reset"),
+            chat_user: cg("#50fa7b", "reset"),
+            chat_bot: cg("#8be9fd", "reset"),
+            chat_system: cg("#6272a4", "reset"),
         }
     }
 
     /// Monokai theme.
     pub fn monokai() -> Self {
         Self {
-            name:         "monokai".to_owned(),
-            header:       cg("#a6e22e", "#272822"),
-            border:       cg("#75715e", "reset"),
-            title:        cg("#e6db74", "reset"),
+            name: "monokai".to_owned(),
+            header: cg("#a6e22e", "#272822"),
+            border: cg("#75715e", "reset"),
+            title: cg("#e6db74", "reset"),
             table_header: cg("#f8f8f2", "#3e3d32"),
-            table_row:    cg("#f8f8f2", "reset"),
-            table_sel:    cg("#272822", "#a6e22e"),
-            table_added:  cg("#a6e22e", "reset"),
-            table_mod:    cg("#fd971f", "reset"),
-            table_del:    cg("#75715e", "reset"),
-            info:         cg("#a6e22e", "reset"),
-            warn:         cg("#fd971f", "reset"),
-            error:        cg("#f92672", "reset"),
-            log_info:     cg("#f8f8f2", "reset"),
-            log_warn:     cg("#fd971f", "reset"),
-            log_error:    cg("#f92672", "reset"),
-            log_debug:    cg("#75715e", "reset"),
-            prompt:       cg("#f8f8f2", "#3e3d32"),
+            table_row: cg("#f8f8f2", "reset"),
+            table_sel: cg("#272822", "#a6e22e"),
+            table_added: cg("#a6e22e", "reset"),
+            table_mod: cg("#fd971f", "reset"),
+            table_del: cg("#75715e", "reset"),
+            info: cg("#a6e22e", "reset"),
+            warn: cg("#fd971f", "reset"),
+            error: cg("#f92672", "reset"),
+            log_info: cg("#f8f8f2", "reset"),
+            log_warn: cg("#fd971f", "reset"),
+            log_error: cg("#f92672", "reset"),
+            log_debug: cg("#75715e", "reset"),
+            prompt: cg("#f8f8f2", "#3e3d32"),
             prompt_label: cg("#a6e22e", "#3e3d32"),
-            chat_user:    cg("#a6e22e", "reset"),
-            chat_bot:     cg("#66d9e8", "reset"),
-            chat_system:  cg("#75715e", "reset"),
+            chat_user: cg("#a6e22e", "reset"),
+            chat_bot: cg("#66d9e8", "reset"),
+            chat_system: cg("#75715e", "reset"),
         }
     }
 
@@ -222,9 +222,9 @@ impl Skin {
     pub fn load(name: &str, config_dir: &std::path::Path) -> Self {
         // Try built-ins first.
         match name {
-            "dark" | ""   => return Self::default_dark(),
-            "dracula"     => return Self::dracula(),
-            "monokai"     => return Self::monokai(),
+            "dark" | "" => return Self::default_dark(),
+            "dracula" => return Self::dracula(),
+            "monokai" => return Self::monokai(),
             _ => {}
         }
 
@@ -269,13 +269,19 @@ mod tests {
 
     #[test]
     fn named_to_ratatui() {
-        assert_eq!(SkinColor::Named("cyan".to_owned()).to_ratatui(), Color::Cyan);
-        assert_eq!(SkinColor::Named("red".to_owned()).to_ratatui(),  Color::Red);
+        assert_eq!(
+            SkinColor::Named("cyan".to_owned()).to_ratatui(),
+            Color::Cyan
+        );
+        assert_eq!(SkinColor::Named("red".to_owned()).to_ratatui(), Color::Red);
     }
 
     #[test]
     fn unknown_named_falls_back_to_reset() {
-        assert_eq!(SkinColor::Named("sparkle".to_owned()).to_ratatui(), Color::Reset);
+        assert_eq!(
+            SkinColor::Named("sparkle".to_owned()).to_ratatui(),
+            Color::Reset
+        );
     }
 
     #[test]

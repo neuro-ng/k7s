@@ -11,28 +11,40 @@
 //! - No additional deserialization round-trip for typed resources.
 //! - Renderer logic is testable with plain `serde_json::json!()` literals.
 
+pub mod config_map;
 pub mod cron_job;
 pub mod daemon_set;
 pub mod deployment;
+pub mod event;
 pub mod generic;
+pub mod helm;
 pub mod job;
 pub mod namespace;
 pub mod node;
 pub mod pod;
+pub mod pv;
+pub mod rbac;
 pub mod replica_set;
+pub mod secret;
 pub mod service;
-pub mod helm;
 pub mod stateful_set;
 
+pub use config_map::ConfigMapRenderer;
 pub use cron_job::CronJobRenderer;
 pub use daemon_set::DaemonSetRenderer;
 pub use deployment::DeploymentRenderer;
+pub use event::EventRenderer;
 pub use generic::GenericRenderer;
 pub use job::JobRenderer;
 pub use namespace::NamespaceRenderer;
 pub use node::NodeRenderer;
 pub use pod::PodRenderer;
+pub use pv::{PvRenderer, PvcRenderer};
+pub use rbac::{
+    ClusterRoleBindingRenderer, ClusterRoleRenderer, RoleBindingRenderer, RoleRenderer,
+};
 pub use replica_set::ReplicaSetRenderer;
+pub use secret::SecretRenderer;
 pub use service::ServiceRenderer;
 pub use stateful_set::StatefulSetRenderer;
 

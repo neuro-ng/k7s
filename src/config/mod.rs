@@ -53,7 +53,11 @@ impl ConfigDirs {
             })
             .join("k7s");
 
-        Ok(Self { config, data, state })
+        Ok(Self {
+            config,
+            data,
+            state,
+        })
     }
 
     /// Path to the main config file: `$config_dir/config.yaml`

@@ -60,7 +60,13 @@ mod tests {
         // The backoff crate applies randomized jitter, so we accept a wide range.
         // The initial interval is 500ms; with ±50% jitter, expect 250ms–750ms.
         let first = policy.next_backoff().unwrap();
-        assert!(first <= Duration::from_millis(750), "first interval too large: {first:?}");
-        assert!(first >= Duration::from_millis(50), "first interval too small: {first:?}");
+        assert!(
+            first <= Duration::from_millis(750),
+            "first interval too large: {first:?}"
+        );
+        assert!(
+            first >= Duration::from_millis(50),
+            "first interval too small: {first:?}"
+        );
     }
 }

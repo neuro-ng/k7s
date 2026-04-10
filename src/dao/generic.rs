@@ -148,15 +148,9 @@ pub fn dynamic_to_resource(gvr: &Gvr, obj: DynamicObject) -> Resource {
 
 fn delete_params_from_opts(opts: &DeleteOptions) -> DeleteParams {
     let propagation_policy = match opts.propagation {
-        PropagationPolicy::Background => {
-            Some(kube::api::PropagationPolicy::Background)
-        }
-        PropagationPolicy::Foreground => {
-            Some(kube::api::PropagationPolicy::Foreground)
-        }
-        PropagationPolicy::Orphan => {
-            Some(kube::api::PropagationPolicy::Orphan)
-        }
+        PropagationPolicy::Background => Some(kube::api::PropagationPolicy::Background),
+        PropagationPolicy::Foreground => Some(kube::api::PropagationPolicy::Foreground),
+        PropagationPolicy::Orphan => Some(kube::api::PropagationPolicy::Orphan),
     };
 
     let mut dp = DeleteParams {

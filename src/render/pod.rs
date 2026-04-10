@@ -1,8 +1,8 @@
 use ratatui::layout::Constraint;
 use serde_json::Value;
 
-use crate::client::Gvr;
 use crate::client::gvr::well_known;
+use crate::client::Gvr;
 use crate::render::{age_from_obj, meta_name, ColumnDef, RenderedRow, Renderer};
 
 pub struct PodRenderer {
@@ -15,36 +15,44 @@ impl PodRenderer {
         Self {
             gvr: well_known::pods(),
             columns: vec![
-                ColumnDef::new("NAME",     Constraint::Min(20)),
-                ColumnDef::new("READY",    Constraint::Length(7)),
-                ColumnDef::new("STATUS",   Constraint::Min(12)),
+                ColumnDef::new("NAME", Constraint::Min(20)),
+                ColumnDef::new("READY", Constraint::Length(7)),
+                ColumnDef::new("STATUS", Constraint::Min(12)),
                 ColumnDef::new("RESTARTS", Constraint::Length(9)),
-                ColumnDef::new("IP",       Constraint::Length(16)),
-                ColumnDef::new("NODE",     Constraint::Min(12)),
-                ColumnDef::new("AGE",      Constraint::Length(6)),
+                ColumnDef::new("IP", Constraint::Length(16)),
+                ColumnDef::new("NODE", Constraint::Min(12)),
+                ColumnDef::new("AGE", Constraint::Length(6)),
             ],
         }
     }
 }
 
 impl Default for PodRenderer {
-    fn default() -> Self { Self::new() }
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl Renderer for PodRenderer {
-    fn gvr(&self) -> &Gvr { &self.gvr }
-    fn columns(&self) -> &[ColumnDef] { &self.columns }
+    fn gvr(&self) -> &Gvr {
+        &self.gvr
+    }
+    fn columns(&self) -> &[ColumnDef] {
+        &self.columns
+    }
 
     fn render(&self, obj: &Value) -> RenderedRow {
         let name = meta_name(obj).to_owned();
         let ready = pod_ready(obj);
         let status = pod_status(obj);
         let restarts = pod_restarts(obj).to_string();
-        let ip = obj.pointer("/status/podIP")
+        let ip = obj
+            .pointer("/status/podIP")
             .and_then(|v| v.as_str())
             .unwrap_or("-")
             .to_owned();
-        let node = obj.pointer("/spec/nodeName")
+        let node = obj
+            .pointer("/spec/nodeName")
             .and_then(|v| v.as_str())
             .unwrap_or("-")
             .to_owned();
@@ -59,14 +67,16 @@ impl Renderer for PodRenderer {
 
 /// `N/M` ready containers.
 fn pod_ready(obj: &Value) -> String {
-    let cs = obj.pointer("/status/containerStatuses")
+    let cs = obj
+        .pointer("/status/containerStatuses")
         .and_then(|v| v.as_array());
 
     match cs {
         None => "0/0".to_owned(),
         Some(arr) => {
             let total = arr.len();
-            let ready = arr.iter()
+            let ready = arr
+                .iter()
                 .filter(|c| c.get("ready").and_then(|v| v.as_bool()).unwrap_or(false))
                 .count();
             format!("{ready}/{total}")
@@ -82,7 +92,10 @@ fn pod_status(obj: &Value) -> String {
     }
 
     // Init containers: if any are failing/waiting, surface that first.
-    if let Some(init_cs) = obj.pointer("/status/initContainerStatuses").and_then(|v| v.as_array()) {
+    if let Some(init_cs) = obj
+        .pointer("/status/initContainerStatuses")
+        .and_then(|v| v.as_array())
+    {
         for c in init_cs {
             if let Some(reason) = container_state_reason(c) {
                 return reason;
@@ -91,7 +104,10 @@ fn pod_status(obj: &Value) -> String {
     }
 
     // Regular container states.
-    if let Some(cs) = obj.pointer("/status/containerStatuses").and_then(|v| v.as_array()) {
+    if let Some(cs) = obj
+        .pointer("/status/containerStatuses")
+        .and_then(|v| v.as_array())
+    {
         for c in cs {
             if let Some(reason) = container_state_reason(c) {
                 return reason;
@@ -116,7 +132,10 @@ fn container_state_reason(container_status: &Value) -> Option<String> {
 
     // Terminated with non-zero exit code or non-Completed reason.
     if let Some(term) = state.get("terminated") {
-        let reason = term.get("reason").and_then(|v| v.as_str()).unwrap_or("Terminated");
+        let reason = term
+            .get("reason")
+            .and_then(|v| v.as_str())
+            .unwrap_or("Terminated");
         if reason != "Completed" {
             return Some(reason.to_owned());
         }

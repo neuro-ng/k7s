@@ -22,8 +22,8 @@ pub enum ClipboardBackend {
 impl std::fmt::Display for ClipboardBackend {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            ClipboardBackend::Xclip  => write!(f, "xclip"),
-            ClipboardBackend::Xsel   => write!(f, "xsel"),
+            ClipboardBackend::Xclip => write!(f, "xclip"),
+            ClipboardBackend::Xsel => write!(f, "xsel"),
             ClipboardBackend::WlCopy => write!(f, "wl-copy"),
             ClipboardBackend::Pbcopy => write!(f, "pbcopy"),
         }
@@ -49,17 +49,21 @@ pub enum ClipboardError {
 /// Tries each backend in order and returns the one that succeeded.
 pub fn copy(text: &str) -> Result<ClipboardBackend, ClipboardError> {
     let candidates: &[(&str, &[&str], ClipboardBackend)] = &[
-        ("pbcopy",   &[],                            ClipboardBackend::Pbcopy),
-        ("wl-copy",  &[],                            ClipboardBackend::WlCopy),
-        ("xclip",    &["-selection", "clipboard"],   ClipboardBackend::Xclip),
-        ("xsel",     &["--clipboard", "--input"],    ClipboardBackend::Xsel),
+        ("pbcopy", &[], ClipboardBackend::Pbcopy),
+        ("wl-copy", &[], ClipboardBackend::WlCopy),
+        (
+            "xclip",
+            &["-selection", "clipboard"],
+            ClipboardBackend::Xclip,
+        ),
+        ("xsel", &["--clipboard", "--input"], ClipboardBackend::Xsel),
     ];
 
     for (bin, args, backend) in candidates {
         match try_copy(bin, args, text) {
-            Ok(true)  => return Ok(backend.clone()),
-            Ok(false) => {}          // binary present but command failed
-            Err(_)    => {}          // binary not found — try next
+            Ok(true) => return Ok(backend.clone()),
+            Ok(false) => {} // binary present but command failed
+            Err(_) => {}    // binary not found — try next
         }
     }
 
@@ -98,7 +102,7 @@ mod tests {
 
     #[test]
     fn backend_display() {
-        assert_eq!(ClipboardBackend::Xclip.to_string(),  "xclip");
+        assert_eq!(ClipboardBackend::Xclip.to_string(), "xclip");
         assert_eq!(ClipboardBackend::WlCopy.to_string(), "wl-copy");
         assert_eq!(ClipboardBackend::Pbcopy.to_string(), "pbcopy");
     }
@@ -112,7 +116,7 @@ mod tests {
         // the function does not panic or block.
         let result = copy("test");
         match result {
-            Ok(_)  => {} // clipboard available — fine
+            Ok(_) => {}                          // clipboard available — fine
             Err(ClipboardError::NoBackend) => {} // expected in CI
             Err(e) => panic!("unexpected error: {e}"),
         }

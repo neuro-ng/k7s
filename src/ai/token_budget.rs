@@ -10,9 +10,9 @@ use crate::config::TokenBudgetConfig;
 #[derive(Debug, Clone)]
 pub struct TokenBudget {
     used_session: u32,
-    max_session:  u32,
-    max_query:    u32,
-    warn_at:      u32,
+    max_session: u32,
+    max_query: u32,
+    warn_at: u32,
 }
 
 /// The outcome of a budget check before sending a query.
@@ -32,9 +32,9 @@ impl TokenBudget {
     pub fn from_config(cfg: &TokenBudgetConfig) -> Self {
         Self {
             used_session: 0,
-            max_session:  cfg.max_per_session,
-            max_query:    cfg.max_per_query,
-            warn_at:      cfg.warn_at,
+            max_session: cfg.max_per_session,
+            max_query: cfg.max_per_query,
+            warn_at: cfg.warn_at,
         }
     }
 
@@ -43,7 +43,7 @@ impl TokenBudget {
         if query_tokens > self.max_query {
             return BudgetCheck::QueryTooLarge {
                 tokens: query_tokens,
-                limit:  self.max_query,
+                limit: self.max_query,
             };
         }
         if self.used_session >= self.max_session {
@@ -52,7 +52,7 @@ impl TokenBudget {
         if self.used_session + query_tokens >= self.warn_at {
             return BudgetCheck::Warning {
                 used: self.used_session,
-                max:  self.max_session,
+                max: self.max_session,
             };
         }
         BudgetCheck::Ok
@@ -63,13 +63,21 @@ impl TokenBudget {
         self.used_session = self.used_session.saturating_add(tokens);
     }
 
-    pub fn used(&self) -> u32 { self.used_session }
-    pub fn remaining(&self) -> u32 { self.max_session.saturating_sub(self.used_session) }
-    pub fn max_session(&self) -> u32 { self.max_session }
+    pub fn used(&self) -> u32 {
+        self.used_session
+    }
+    pub fn remaining(&self) -> u32 {
+        self.max_session.saturating_sub(self.used_session)
+    }
+    pub fn max_session(&self) -> u32 {
+        self.max_session
+    }
 
     /// Percentage of session budget consumed (0–100).
     pub fn usage_pct(&self) -> u8 {
-        if self.max_session == 0 { return 100; }
+        if self.max_session == 0 {
+            return 100;
+        }
         ((self.used_session as f64 / self.max_session as f64) * 100.0) as u8
     }
 }
@@ -92,8 +100,8 @@ mod tests {
     fn budget() -> TokenBudget {
         TokenBudget::from_config(&TokenBudgetConfig {
             max_per_session: 100_000,
-            max_per_query:   4_000,
-            warn_at:         80_000,
+            max_per_query: 4_000,
+            warn_at: 80_000,
         })
     }
 
@@ -106,7 +114,10 @@ mod tests {
     fn check_query_too_large() {
         assert_eq!(
             budget().check(5_000),
-            BudgetCheck::QueryTooLarge { tokens: 5_000, limit: 4_000 }
+            BudgetCheck::QueryTooLarge {
+                tokens: 5_000,
+                limit: 4_000
+            }
         );
     }
 

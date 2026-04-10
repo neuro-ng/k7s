@@ -1,0 +1,31 @@
+[package]
+name = "k7s-fuzz"
+version = "0.0.0"
+publish = false
+edition = "2021"
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = { version = "0.4", features = ["arbitrary-derive"] }
+arbitrary = { version = "1", features = ["derive"] }
+k7s = { path = ".." }
+serde_json = "1"
+
+# Fuzz targets must be compiled without LTO and with debug info.
+[profile.release]
+debug = true
+opt-level = 3
+
+[[bin]]
+name = "sanitize"
+path = "fuzz_targets/sanitize.rs"
+test = false
+doc = false
+
+[[bin]]
+name = "sanitize_structured"
+path = "fuzz_targets/sanitize_structured.rs"
+test = false
+doc = false

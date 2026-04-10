@@ -22,9 +22,15 @@ use serde_json::{json, Value};
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
-fn pod_gvr() -> Gvr { Gvr::core("v1", "pods") }
-fn secret_gvr() -> Gvr { Gvr::core("v1", "secrets") }
-fn configmap_gvr() -> Gvr { Gvr::core("v1", "configmaps") }
+fn pod_gvr() -> Gvr {
+    Gvr::core("v1", "pods")
+}
+fn secret_gvr() -> Gvr {
+    Gvr::core("v1", "secrets")
+}
+fn configmap_gvr() -> Gvr {
+    Gvr::core("v1", "configmaps")
+}
 
 fn sanitize_to_json(gvr: &Gvr, resource: Value) -> String {
     let cfg = SanitizerConfig::default();
@@ -52,9 +58,9 @@ fn secret_data_field_is_stripped() {
         }
     });
     let out = sanitize_to_json(&secret_gvr(), resource);
-    assert_no_leak(&out, "c3VwZXJzZWNyZXQ=",    "base64 password in secret.data");
-    assert_no_leak(&out, "c2stYWJjMTIzeHl6",     "base64 api-key in secret.data");
-    assert_no_leak(&out, "supersecret",           "decoded password in secret.data");
+    assert_no_leak(&out, "c3VwZXJzZWNyZXQ=", "base64 password in secret.data");
+    assert_no_leak(&out, "c2stYWJjMTIzeHl6", "base64 api-key in secret.data");
+    assert_no_leak(&out, "supersecret", "decoded password in secret.data");
 }
 
 #[test]
@@ -88,9 +94,9 @@ fn pod_env_var_value_is_stripped() {
         }
     });
     let out = sanitize_to_json(&pod_gvr(), resource);
-    assert_no_leak(&out, "hunter2",             "plain password env var");
-    assert_no_leak(&out, "redis://:secret@",    "connection string in env var");
-    assert_no_leak(&out, "wJalrXUtnFEMI",       "AWS secret key in env var");
+    assert_no_leak(&out, "hunter2", "plain password env var");
+    assert_no_leak(&out, "redis://:secret@", "connection string in env var");
+    assert_no_leak(&out, "wJalrXUtnFEMI", "AWS secret key in env var");
 }
 
 #[test]
@@ -124,8 +130,8 @@ fn configmap_values_are_stripped() {
         }
     });
     let out = sanitize_to_json(&configmap_gvr(), resource);
-    assert_no_leak(&out, "secretpw",   "password in configmap database_url");
-    assert_no_leak(&out, "sk-abc123",  "api key in configmap value");
+    assert_no_leak(&out, "secretpw", "password in configmap database_url");
+    assert_no_leak(&out, "sk-abc123", "api key in configmap value");
     assert_no_leak(&out, "postgres://admin:secretpw", "full connection string");
 }
 
@@ -192,7 +198,11 @@ fn connection_string_in_label_value_is_redacted() {
         }
     });
     let out = sanitize_to_json(&pod_gvr(), resource);
-    assert_no_leak(&out, "p@ssw0rd", "password in label value connection string");
+    assert_no_leak(
+        &out,
+        "p@ssw0rd",
+        "password in label value connection string",
+    );
 }
 
 #[test]
@@ -248,7 +258,10 @@ fn pod_name_and_labels_survive_sanitization() {
         "status": { "phase": "Running" }
     });
     let out = sanitize_to_json(&pod_gvr(), resource);
-    assert!(out.contains("nginx-abc123"), "pod name should survive sanitization");
+    assert!(
+        out.contains("nginx-abc123"),
+        "pod name should survive sanitization"
+    );
 }
 
 #[test]
@@ -260,5 +273,8 @@ fn deployment_name_survives_sanitization() {
         "status": { "readyReplicas": 3, "replicas": 3 }
     });
     let out = sanitize_to_json(&gvr, resource);
-    assert!(out.contains("my-deploy"), "deployment name should survive sanitization");
+    assert!(
+        out.contains("my-deploy"),
+        "deployment name should survive sanitization"
+    );
 }

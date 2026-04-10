@@ -1,8 +1,8 @@
 use ratatui::layout::Constraint;
 use serde_json::Value;
 
-use crate::client::Gvr;
 use crate::client::gvr::well_known;
+use crate::client::Gvr;
 use crate::render::{age_from_obj, meta_name, ColumnDef, RenderedRow, Renderer};
 
 pub struct JobRenderer {
@@ -15,39 +15,46 @@ impl JobRenderer {
         Self {
             gvr: well_known::jobs(),
             columns: vec![
-                ColumnDef::new("NAME",        Constraint::Min(20)),
+                ColumnDef::new("NAME", Constraint::Min(20)),
                 ColumnDef::new("COMPLETIONS", Constraint::Length(12)),
-                ColumnDef::new("DURATION",    Constraint::Length(9)),
-                ColumnDef::new("AGE",         Constraint::Length(6)),
+                ColumnDef::new("DURATION", Constraint::Length(9)),
+                ColumnDef::new("AGE", Constraint::Length(6)),
             ],
         }
     }
 }
 
 impl Default for JobRenderer {
-    fn default() -> Self { Self::new() }
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl Renderer for JobRenderer {
-    fn gvr(&self) -> &Gvr { &self.gvr }
-    fn columns(&self) -> &[ColumnDef] { &self.columns }
+    fn gvr(&self) -> &Gvr {
+        &self.gvr
+    }
+    fn columns(&self) -> &[ColumnDef] {
+        &self.columns
+    }
 
     fn render(&self, obj: &Value) -> RenderedRow {
-        let name        = meta_name(obj).to_owned();
-        let completions = obj.pointer("/spec/completions").and_then(|v| v.as_i64()).unwrap_or(1);
-        let succeeded   = obj.pointer("/status/succeeded").and_then(|v| v.as_i64()).unwrap_or(0);
+        let name = meta_name(obj).to_owned();
+        let completions = obj
+            .pointer("/spec/completions")
+            .and_then(|v| v.as_i64())
+            .unwrap_or(1);
+        let succeeded = obj
+            .pointer("/status/succeeded")
+            .and_then(|v| v.as_i64())
+            .unwrap_or(0);
 
         // Derive a duration from startTime → completionTime if available.
         let duration = job_duration(obj);
         let (age, age_secs) = age_from_obj(obj);
 
         RenderedRow {
-            cells: vec![
-                name,
-                format!("{succeeded}/{completions}"),
-                duration,
-                age,
-            ],
+            cells: vec![name, format!("{succeeded}/{completions}"), duration, age],
             age_secs,
         }
     }
@@ -77,7 +84,8 @@ fn job_duration(obj: &Value) -> String {
         (Some(s), None) => {
             // Job still running — show elapsed so far.
             let now = chrono::Utc::now();
-            let secs = now.signed_duration_since(s.with_timezone(&chrono::Utc))
+            let secs = now
+                .signed_duration_since(s.with_timezone(&chrono::Utc))
                 .num_seconds()
                 .max(0) as u64;
             format!("{}+", crate::render::format_duration_secs(secs))

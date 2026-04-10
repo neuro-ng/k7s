@@ -55,11 +55,11 @@ pub enum TraceRuntime {
 impl TraceRuntime {
     pub fn as_str(self) -> &'static str {
         match self {
-            TraceRuntime::Java    => "java",
-            TraceRuntime::Python  => "python",
-            TraceRuntime::Node    => "node",
-            TraceRuntime::Go      => "go",
-            TraceRuntime::Rust    => "rust",
+            TraceRuntime::Java => "java",
+            TraceRuntime::Python => "python",
+            TraceRuntime::Node => "node",
+            TraceRuntime::Go => "go",
+            TraceRuntime::Rust => "rust",
             TraceRuntime::Unknown => "unknown",
         }
     }
@@ -110,9 +110,13 @@ fn detect_runtime(lines: &[&str]) -> TraceRuntime {
         let l = line.trim();
         if l.starts_with("at ") && l.contains('(') && l.ends_with(')') {
             // "at com.example.Foo.bar(Foo.java:42)" — Java
-            if l.contains(".java:") { return TraceRuntime::Java; }
+            if l.contains(".java:") {
+                return TraceRuntime::Java;
+            }
             // "at Object.<anonymous> (file.js:10:5)" — Node
-            if l.contains(".js:") { return TraceRuntime::Node; }
+            if l.contains(".js:") {
+                return TraceRuntime::Node;
+            }
         }
         if l.starts_with("File \"") && l.contains(", line ") {
             return TraceRuntime::Python;
@@ -131,11 +135,11 @@ fn detect_runtime(lines: &[&str]) -> TraceRuntime {
 fn is_frame_line(line: &str, rt: TraceRuntime) -> bool {
     let l = line.trim();
     match rt {
-        TraceRuntime::Java   => l.starts_with("at ") && l.contains('('),
+        TraceRuntime::Java => l.starts_with("at ") && l.contains('('),
         TraceRuntime::Python => l.starts_with("File \""),
-        TraceRuntime::Node   => l.starts_with("at ") && l.contains('('),
-        TraceRuntime::Go     => l.starts_with('\t') && l.contains(".go:"),
-        TraceRuntime::Rust   => l.starts_with("  ") && (l.contains("::") || l.contains(".rs:")),
+        TraceRuntime::Node => l.starts_with("at ") && l.contains('('),
+        TraceRuntime::Go => l.starts_with('\t') && l.contains(".go:"),
+        TraceRuntime::Rust => l.starts_with("  ") && (l.contains("::") || l.contains(".rs:")),
         TraceRuntime::Unknown => l.starts_with("at ") || l.starts_with('\t'),
     }
 }
@@ -146,18 +150,12 @@ fn is_stdlib_frame(line: &str, rt: TraceRuntime) -> bool {
         TraceRuntime::Java => {
             l.contains("java.lang.") || l.contains("sun.reflect.") || l.contains("java.util.")
         }
-        TraceRuntime::Python => {
-            l.contains("/lib/python") || l.contains("site-packages/")
-        }
+        TraceRuntime::Python => l.contains("/lib/python") || l.contains("site-packages/"),
         TraceRuntime::Node => {
             l.contains("node:internal") || l.contains("(node:") || l.contains("(timers.js")
         }
-        TraceRuntime::Go => {
-            l.contains("runtime/") || l.contains("testing/")
-        }
-        TraceRuntime::Rust => {
-            l.contains("std::") || l.contains("core::") || l.contains("tokio::")
-        }
+        TraceRuntime::Go => l.contains("runtime/") || l.contains("testing/"),
+        TraceRuntime::Rust => l.contains("std::") || l.contains("core::") || l.contains("tokio::"),
         TraceRuntime::Unknown => false,
     }
 }
@@ -190,7 +188,7 @@ pub fn detect_temporal_patterns(lines: &[&str], max_patterns: usize) -> Vec<Temp
 
     // Collect (minute_of_hour, error_flag) tuples.
     let mut minute_errors: Vec<u8> = Vec::new();
-    let mut hour_errors:   Vec<u8> = Vec::new();
+    let mut hour_errors: Vec<u8> = Vec::new();
 
     for line in lines {
         if let Some((minute, hour, is_error)) = parse_time_and_level(line) {
@@ -267,11 +265,12 @@ fn parse_time_and_level(line: &str) -> Option<(u8, u8, bool)> {
         return None;
     }
 
-    let time_part = if line.as_bytes().get(10) == Some(&b'T') || line.as_bytes().get(10) == Some(&b' ') {
-        &line[11..]
-    } else {
-        return None;
-    };
+    let time_part =
+        if line.as_bytes().get(10) == Some(&b'T') || line.as_bytes().get(10) == Some(&b' ') {
+            &line[11..]
+        } else {
+            return None;
+        };
 
     // time_part starts with "HH:MM"
     if time_part.len() < 5 {
@@ -285,8 +284,11 @@ fn parse_time_and_level(line: &str) -> Option<(u8, u8, bool)> {
     let mm = time_part[3..5].parse::<u8>().ok()?;
 
     let lower = line.to_lowercase();
-    let is_error = lower.contains("error") || lower.contains("err ") || lower.contains(" err:")
-        || lower.contains("fatal") || lower.contains("panic");
+    let is_error = lower.contains("error")
+        || lower.contains("err ")
+        || lower.contains(" err:")
+        || lower.contains("fatal")
+        || lower.contains("panic");
 
     Some((mm, hh, is_error))
 }
@@ -353,9 +355,7 @@ impl SmartTruncator {
 
         // Find the last whitespace boundary within the limit to avoid cutting words.
         let cutoff = self.max_chars.saturating_sub(3); // leave room for "..."
-        let boundary = text[..cutoff]
-            .rfind(char::is_whitespace)
-            .unwrap_or(cutoff);
+        let boundary = text[..cutoff].rfind(char::is_whitespace).unwrap_or(cutoff);
 
         let visible = format!("{}...", &text[..boundary]);
 
@@ -368,7 +368,11 @@ impl SmartTruncator {
         }
         self.store.insert(hash, text.to_owned());
 
-        TruncatedText { visible, was_truncated: true, content_hash: hash }
+        TruncatedText {
+            visible,
+            was_truncated: true,
+            content_hash: hash,
+        }
     }
 
     /// Retrieve the full text for a previously truncated entry.
@@ -420,7 +424,10 @@ mod tests {
     fn java_trace_filters_stdlib_frames() {
         let s = summarise_stack_trace(JAVA_TRACE, 10).unwrap();
         // java.lang and sun.reflect frames should be filtered.
-        assert!(s.frames.iter().all(|f| !f.contains("java.lang.reflect") && !f.contains("sun.reflect")));
+        assert!(s
+            .frames
+            .iter()
+            .all(|f| !f.contains("java.lang.reflect") && !f.contains("sun.reflect")));
         assert!(s.frames.iter().any(|f| f.contains("com.example")));
     }
 
@@ -480,7 +487,10 @@ mod tests {
         let patterns = detect_temporal_patterns(&refs, 3);
         assert!(!patterns.is_empty(), "should detect a pattern");
         let desc = patterns[0].description.to_lowercase();
-        assert!(desc.contains(":00") || desc.contains("minute") || desc.contains("spike"), "desc: {desc}");
+        assert!(
+            desc.contains(":00") || desc.contains("minute") || desc.contains("spike"),
+            "desc: {desc}"
+        );
     }
 
     #[test]
@@ -494,9 +504,11 @@ mod tests {
     fn max_patterns_respected() {
         let mut lines: Vec<String> = Vec::new();
         lines.extend(error_lines_at_minute(0, 10));
-        lines.extend((1u8..=6).flat_map(|h| {
-            (0..3).map(move |_| format!("2024-01-15T{h:02}:00:00Z ERROR: spike"))
-        }));
+        lines.extend(
+            (1u8..=6).flat_map(|h| {
+                (0..3).map(move |_| format!("2024-01-15T{h:02}:00:00Z ERROR: spike"))
+            }),
+        );
         let refs: Vec<&str> = lines.iter().map(|s| s.as_str()).collect();
         let patterns = detect_temporal_patterns(&refs, 1);
         assert!(patterns.len() <= 1);

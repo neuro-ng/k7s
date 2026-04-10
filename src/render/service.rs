@@ -1,8 +1,8 @@
 use ratatui::layout::Constraint;
 use serde_json::Value;
 
-use crate::client::Gvr;
 use crate::client::gvr::well_known;
+use crate::client::Gvr;
 use crate::render::{age_from_obj, meta_name, ColumnDef, RenderedRow, Renderer};
 
 pub struct ServiceRenderer {
@@ -15,32 +15,40 @@ impl ServiceRenderer {
         Self {
             gvr: well_known::services(),
             columns: vec![
-                ColumnDef::new("NAME",        Constraint::Min(20)),
-                ColumnDef::new("TYPE",        Constraint::Length(12)),
-                ColumnDef::new("CLUSTER-IP",  Constraint::Length(16)),
+                ColumnDef::new("NAME", Constraint::Min(20)),
+                ColumnDef::new("TYPE", Constraint::Length(12)),
+                ColumnDef::new("CLUSTER-IP", Constraint::Length(16)),
                 ColumnDef::new("EXTERNAL-IP", Constraint::Length(16)),
-                ColumnDef::new("PORT(S)",     Constraint::Min(14)),
-                ColumnDef::new("AGE",         Constraint::Length(6)),
+                ColumnDef::new("PORT(S)", Constraint::Min(14)),
+                ColumnDef::new("AGE", Constraint::Length(6)),
             ],
         }
     }
 }
 
 impl Default for ServiceRenderer {
-    fn default() -> Self { Self::new() }
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl Renderer for ServiceRenderer {
-    fn gvr(&self) -> &Gvr { &self.gvr }
-    fn columns(&self) -> &[ColumnDef] { &self.columns }
+    fn gvr(&self) -> &Gvr {
+        &self.gvr
+    }
+    fn columns(&self) -> &[ColumnDef] {
+        &self.columns
+    }
 
     fn render(&self, obj: &Value) -> RenderedRow {
         let name = meta_name(obj).to_owned();
-        let svc_type = obj.pointer("/spec/type")
+        let svc_type = obj
+            .pointer("/spec/type")
             .and_then(|v| v.as_str())
             .unwrap_or("ClusterIP")
             .to_owned();
-        let cluster_ip = obj.pointer("/spec/clusterIP")
+        let cluster_ip = obj
+            .pointer("/spec/clusterIP")
             .and_then(|v| v.as_str())
             .unwrap_or("None")
             .to_owned();
@@ -57,11 +65,15 @@ impl Renderer for ServiceRenderer {
 
 fn external_ips(obj: &Value) -> String {
     // LoadBalancer ingress IPs/hostnames.
-    if let Some(ingress) = obj.pointer("/status/loadBalancer/ingress").and_then(|v| v.as_array()) {
+    if let Some(ingress) = obj
+        .pointer("/status/loadBalancer/ingress")
+        .and_then(|v| v.as_array())
+    {
         let ips: Vec<&str> = ingress
             .iter()
             .filter_map(|i| {
-                i.get("ip").or_else(|| i.get("hostname"))
+                i.get("ip")
+                    .or_else(|| i.get("hostname"))
                     .and_then(|v| v.as_str())
             })
             .collect();

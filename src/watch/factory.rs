@@ -60,11 +60,7 @@ impl WatcherFactory {
     ///
     /// Idempotent: if a watcher is already running for this key, returns the
     /// existing store. Creates a new reflector task otherwise.
-    pub async fn ensure(
-        &self,
-        gvr: &Gvr,
-        namespace: Option<&str>,
-    ) -> Store<DynamicObject> {
+    pub async fn ensure(&self, gvr: &Gvr, namespace: Option<&str>) -> Store<DynamicObject> {
         let key = WatchKey {
             gvr: gvr.to_string(),
             namespace: namespace.map(str::to_owned),
@@ -127,17 +123,16 @@ impl WatcherFactory {
             }
         });
 
-        let handle = WatchHandle { store: store.clone(), _task: task };
+        let handle = WatchHandle {
+            store: store.clone(),
+            _task: task,
+        };
         handles.insert(key, handle);
         store
     }
 
     /// Return the current store for a GVR + namespace, if a watcher is running.
-    pub async fn store(
-        &self,
-        gvr: &Gvr,
-        namespace: Option<&str>,
-    ) -> Option<Store<DynamicObject>> {
+    pub async fn store(&self, gvr: &Gvr, namespace: Option<&str>) -> Option<Store<DynamicObject>> {
         let key = WatchKey {
             gvr: gvr.to_string(),
             namespace: namespace.map(str::to_owned),
@@ -228,7 +223,13 @@ mod tests {
         assert_eq!(resource_to_kind("statefulsets"), "StatefulSet");
         assert_eq!(resource_to_kind("daemonsets"), "DaemonSet");
         assert_eq!(resource_to_kind("cronjobs"), "CronJob");
-        assert_eq!(resource_to_kind("persistentvolumeclaims"), "PersistentVolumeClaim");
-        assert_eq!(resource_to_kind("customresourcedefinitions"), "CustomResourceDefinition");
+        assert_eq!(
+            resource_to_kind("persistentvolumeclaims"),
+            "PersistentVolumeClaim"
+        );
+        assert_eq!(
+            resource_to_kind("customresourcedefinitions"),
+            "CustomResourceDefinition"
+        );
     }
 }

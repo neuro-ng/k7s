@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
-use crate::client::Gvr;
 use crate::client::gvr::well_known;
+use crate::client::Gvr;
 use crate::dao::traits::ResourceMeta;
 
 /// Central registry mapping GVRs (and aliases) to resource metadata.
@@ -35,7 +35,8 @@ impl Registry {
             self.by_alias.insert(alias.clone(), meta.gvr.clone());
         }
         // Also register the resource name itself as an alias.
-        self.by_alias.insert(meta.gvr.resource.clone(), meta.gvr.clone());
+        self.by_alias
+            .insert(meta.gvr.resource.clone(), meta.gvr.clone());
         self.by_gvr.insert(meta.gvr.clone(), meta);
     }
 
@@ -58,39 +59,154 @@ impl Registry {
 
     fn register_builtins(&mut self) {
         // Core group
-        self.register(ResourceMeta::new(well_known::pods(), "Pods", vec!["po", "pod"], true));
-        self.register(ResourceMeta::new(well_known::nodes(), "Nodes", vec!["no", "node"], false));
-        self.register(ResourceMeta::new(well_known::namespaces(), "Namespaces", vec!["ns", "namespace"], false));
-        self.register(ResourceMeta::new(well_known::services(), "Services", vec!["svc", "service"], true));
-        self.register(ResourceMeta::new(well_known::config_maps(), "ConfigMaps", vec!["cm", "configmap"], true));
-        self.register(ResourceMeta::new(well_known::secrets(), "Secrets", vec!["secret"], true));
-        self.register(ResourceMeta::new(well_known::events(), "Events", vec!["ev", "event"], true));
-        self.register(ResourceMeta::new(well_known::service_accounts(), "ServiceAccounts", vec!["sa", "serviceaccount"], true));
-        self.register(ResourceMeta::new(well_known::persistent_volumes(), "PersistentVolumes", vec!["pv"], false));
-        self.register(ResourceMeta::new(well_known::persistent_volume_claims(), "PersistentVolumeClaims", vec!["pvc"], true));
+        self.register(ResourceMeta::new(
+            well_known::pods(),
+            "Pods",
+            vec!["po", "pod"],
+            true,
+        ));
+        self.register(ResourceMeta::new(
+            well_known::nodes(),
+            "Nodes",
+            vec!["no", "node"],
+            false,
+        ));
+        self.register(ResourceMeta::new(
+            well_known::namespaces(),
+            "Namespaces",
+            vec!["ns", "namespace"],
+            false,
+        ));
+        self.register(ResourceMeta::new(
+            well_known::services(),
+            "Services",
+            vec!["svc", "service"],
+            true,
+        ));
+        self.register(ResourceMeta::new(
+            well_known::config_maps(),
+            "ConfigMaps",
+            vec!["cm", "configmap"],
+            true,
+        ));
+        self.register(ResourceMeta::new(
+            well_known::secrets(),
+            "Secrets",
+            vec!["secret"],
+            true,
+        ));
+        self.register(ResourceMeta::new(
+            well_known::events(),
+            "Events",
+            vec!["ev", "event"],
+            true,
+        ));
+        self.register(ResourceMeta::new(
+            well_known::service_accounts(),
+            "ServiceAccounts",
+            vec!["sa", "serviceaccount"],
+            true,
+        ));
+        self.register(ResourceMeta::new(
+            well_known::persistent_volumes(),
+            "PersistentVolumes",
+            vec!["pv"],
+            false,
+        ));
+        self.register(ResourceMeta::new(
+            well_known::persistent_volume_claims(),
+            "PersistentVolumeClaims",
+            vec!["pvc"],
+            true,
+        ));
 
         // Apps group
-        self.register(ResourceMeta::new(well_known::deployments(), "Deployments", vec!["dp", "deploy", "deployment"], true));
-        self.register(ResourceMeta::new(well_known::stateful_sets(), "StatefulSets", vec!["sts", "statefulset"], true));
-        self.register(ResourceMeta::new(well_known::daemon_sets(), "DaemonSets", vec!["ds", "daemonset"], true));
-        self.register(ResourceMeta::new(well_known::replica_sets(), "ReplicaSets", vec!["rs", "replicaset"], true));
+        self.register(ResourceMeta::new(
+            well_known::deployments(),
+            "Deployments",
+            vec!["dp", "deploy", "deployment"],
+            true,
+        ));
+        self.register(ResourceMeta::new(
+            well_known::stateful_sets(),
+            "StatefulSets",
+            vec!["sts", "statefulset"],
+            true,
+        ));
+        self.register(ResourceMeta::new(
+            well_known::daemon_sets(),
+            "DaemonSets",
+            vec!["ds", "daemonset"],
+            true,
+        ));
+        self.register(ResourceMeta::new(
+            well_known::replica_sets(),
+            "ReplicaSets",
+            vec!["rs", "replicaset"],
+            true,
+        ));
 
         // Batch group
-        self.register(ResourceMeta::new(well_known::jobs(), "Jobs", vec!["job"], true));
-        self.register(ResourceMeta::new(well_known::cron_jobs(), "CronJobs", vec!["cj", "cronjob"], true));
+        self.register(ResourceMeta::new(
+            well_known::jobs(),
+            "Jobs",
+            vec!["job"],
+            true,
+        ));
+        self.register(ResourceMeta::new(
+            well_known::cron_jobs(),
+            "CronJobs",
+            vec!["cj", "cronjob"],
+            true,
+        ));
 
         // Networking
-        self.register(ResourceMeta::new(well_known::ingresses(), "Ingresses", vec!["ing", "ingress"], true));
-        self.register(ResourceMeta::new(well_known::network_policies(), "NetworkPolicies", vec!["netpol", "networkpolicy"], true));
+        self.register(ResourceMeta::new(
+            well_known::ingresses(),
+            "Ingresses",
+            vec!["ing", "ingress"],
+            true,
+        ));
+        self.register(ResourceMeta::new(
+            well_known::network_policies(),
+            "NetworkPolicies",
+            vec!["netpol", "networkpolicy"],
+            true,
+        ));
 
         // RBAC
-        self.register(ResourceMeta::new(well_known::roles(), "Roles", vec!["role"], true));
-        self.register(ResourceMeta::new(well_known::role_bindings(), "RoleBindings", vec!["rb", "rolebinding"], true));
-        self.register(ResourceMeta::new(well_known::cluster_roles(), "ClusterRoles", vec!["cr", "clusterrole"], false));
-        self.register(ResourceMeta::new(well_known::cluster_role_bindings(), "ClusterRoleBindings", vec!["crb", "clusterrolebinding"], false));
+        self.register(ResourceMeta::new(
+            well_known::roles(),
+            "Roles",
+            vec!["role"],
+            true,
+        ));
+        self.register(ResourceMeta::new(
+            well_known::role_bindings(),
+            "RoleBindings",
+            vec!["rb", "rolebinding"],
+            true,
+        ));
+        self.register(ResourceMeta::new(
+            well_known::cluster_roles(),
+            "ClusterRoles",
+            vec!["cr", "clusterrole"],
+            false,
+        ));
+        self.register(ResourceMeta::new(
+            well_known::cluster_role_bindings(),
+            "ClusterRoleBindings",
+            vec!["crb", "clusterrolebinding"],
+            false,
+        ));
 
         // Extensions
-        self.register(ResourceMeta::new(well_known::custom_resource_definitions(), "CRDs", vec!["crd"], false));
+        self.register(ResourceMeta::new(
+            well_known::custom_resource_definitions(),
+            "CRDs",
+            vec!["crd"],
+            false,
+        ));
     }
 }
 
@@ -114,7 +230,9 @@ mod tests {
     #[test]
     fn resolve_deployment_by_resource_name() {
         let reg = Registry::with_builtins();
-        let meta = reg.get_by_alias("deployments").expect("deployments should resolve");
+        let meta = reg
+            .get_by_alias("deployments")
+            .expect("deployments should resolve");
         assert_eq!(meta.display_name, "Deployments");
     }
 

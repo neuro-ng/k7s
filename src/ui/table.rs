@@ -8,10 +8,10 @@
 //!   - Delta markers: Added / Modified / Deleted rows highlighted differently
 
 use ratatui::layout::Constraint;
+use ratatui::layout::Rect;
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::widgets::{Block, Borders, Cell, Row, Table, TableState};
 use ratatui::Frame;
-use ratatui::layout::Rect;
 
 /// A single displayable column.
 #[derive(Debug, Clone)]
@@ -110,29 +110,38 @@ impl TableWidget {
     /// Move cursor up by one.
     pub fn up(&mut self) {
         let len = self.filtered_indices.len();
-        if len == 0 { return; }
+        if len == 0 {
+            return;
+        }
         let i = self.state.selected().unwrap_or(0);
-        self.state.select(Some(if i == 0 { len - 1 } else { i - 1 }));
+        self.state
+            .select(Some(if i == 0 { len - 1 } else { i - 1 }));
     }
 
     /// Move cursor down by one.
     pub fn down(&mut self) {
         let len = self.filtered_indices.len();
-        if len == 0 { return; }
+        if len == 0 {
+            return;
+        }
         let i = self.state.selected().unwrap_or(0);
         self.state.select(Some((i + 1) % len));
     }
 
     pub fn page_up(&mut self, page_size: usize) {
         let len = self.filtered_indices.len();
-        if len == 0 { return; }
+        if len == 0 {
+            return;
+        }
         let i = self.state.selected().unwrap_or(0);
         self.state.select(Some(i.saturating_sub(page_size)));
     }
 
     pub fn page_down(&mut self, page_size: usize) {
         let len = self.filtered_indices.len();
-        if len == 0 { return; }
+        if len == 0 {
+            return;
+        }
         let i = self.state.selected().unwrap_or(0);
         self.state.select(Some((i + page_size).min(len - 1)));
     }
@@ -193,7 +202,11 @@ impl TableWidget {
         if let Some(sel) = self.state.selected() {
             if sel >= self.filtered_indices.len() {
                 let new = self.filtered_indices.len().saturating_sub(1);
-                self.state.select(if self.filtered_indices.is_empty() { None } else { Some(new) });
+                self.state.select(if self.filtered_indices.is_empty() {
+                    None
+                } else {
+                    Some(new)
+                });
             }
         } else if !self.filtered_indices.is_empty() {
             self.state.select(Some(0));
@@ -209,7 +222,11 @@ impl TableWidget {
             let ca = rows[a].cells.get(col).map(String::as_str).unwrap_or("");
             let cb = rows[b].cells.get(col).map(String::as_str).unwrap_or("");
             let ord = ca.cmp(cb);
-            if dir == SortDir::Descending { ord.reverse() } else { ord }
+            if dir == SortDir::Descending {
+                ord.reverse()
+            } else {
+                ord
+            }
         });
     }
 
@@ -245,9 +262,9 @@ impl TableWidget {
                 let style = match row.delta {
                     RowDelta::Added => Style::default().fg(Color::Green),
                     RowDelta::Modified => Style::default().fg(Color::Yellow),
-                    RowDelta::Deleted => Style::default()
-                        .fg(Color::Red)
-                        .add_modifier(Modifier::DIM),
+                    RowDelta::Deleted => {
+                        Style::default().fg(Color::Red).add_modifier(Modifier::DIM)
+                    }
                     RowDelta::Unchanged => Style::default(),
                 };
                 let cells: Vec<Cell> = row.cells.iter().map(|c| Cell::from(c.clone())).collect();
@@ -260,16 +277,18 @@ impl TableWidget {
         let block_title = if self.filter.is_empty() {
             format!(" {} ({}) ", title, self.filtered_indices.len())
         } else {
-            format!(" {} ({}/{}) filter: {} ", title, self.filtered_indices.len(), self.all_rows.len(), self.filter)
+            format!(
+                " {} ({}/{}) filter: {} ",
+                title,
+                self.filtered_indices.len(),
+                self.all_rows.len(),
+                self.filter
+            )
         };
 
         let table = Table::new(rows, widths)
             .header(header)
-            .block(
-                Block::default()
-                    .borders(Borders::ALL)
-                    .title(block_title),
-            )
+            .block(Block::default().borders(Borders::ALL).title(block_title))
             .row_highlight_style(
                 Style::default()
                     .bg(Color::DarkGray)
@@ -288,8 +307,14 @@ mod tests {
 
     fn sample_table() -> TableWidget {
         let cols = vec![
-            Column { header: "NAME", width: Constraint::Min(10) },
-            Column { header: "STATUS", width: Constraint::Length(10) },
+            Column {
+                header: "NAME",
+                width: Constraint::Min(10),
+            },
+            Column {
+                header: "STATUS",
+                width: Constraint::Length(10),
+            },
         ];
         TableWidget::new(cols)
     }
@@ -310,7 +335,11 @@ mod tests {
     #[test]
     fn filter_reduces_visible_rows() {
         let mut t = sample_table();
-        t.set_rows(rows(&[("pod-a", "Running"), ("pod-b", "Pending"), ("job-1", "Running")]));
+        t.set_rows(rows(&[
+            ("pod-a", "Running"),
+            ("pod-b", "Pending"),
+            ("job-1", "Running"),
+        ]));
         t.set_filter("pod".to_string());
         assert_eq!(t.row_count(), 2);
     }

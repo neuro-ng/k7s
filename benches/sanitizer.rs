@@ -113,7 +113,7 @@ fn bench_log_compress(c: &mut Criterion) {
         // Realistic log: ~80% repeated errors, ~20% unique info lines.
         let mut lines: Vec<String> = Vec::with_capacity(line_count);
         let error_count = (line_count as f64 * 0.8) as usize;
-        let info_count  = line_count - error_count;
+        let info_count = line_count - error_count;
 
         for _ in 0..error_count {
             lines.push("ERROR: connection refused to 10.0.0.1:5432 after 3 retries".to_owned());
@@ -147,20 +147,10 @@ fn bench_token_estimate(c: &mut Criterion) {
 
 // ─── Groups ───────────────────────────────────────────────────────────────────
 
-criterion_group!(
-    sanitizer_benches,
-    bench_sanitize_pod,
-    bench_sanitize_secret,
-);
+criterion_group!(sanitizer_benches, bench_sanitize_pod, bench_sanitize_secret,);
 
-criterion_group!(
-    log_benches,
-    bench_log_compress,
-);
+criterion_group!(log_benches, bench_log_compress,);
 
-criterion_group!(
-    ai_benches,
-    bench_token_estimate,
-);
+criterion_group!(ai_benches, bench_token_estimate,);
 
 criterion_main!(sanitizer_benches, log_benches, ai_benches);

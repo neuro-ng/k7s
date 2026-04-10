@@ -27,10 +27,10 @@ pub struct ApiKeyProviderConfig {
 impl Default for ApiKeyProviderConfig {
     fn default() -> Self {
         Self {
-            endpoint:    "https://api.openai.com/v1/chat/completions".to_owned(),
-            api_key:     String::new(),
-            model:       "gpt-4o-mini".to_owned(),
-            max_tokens:  2048,
+            endpoint: "https://api.openai.com/v1/chat/completions".to_owned(),
+            api_key: String::new(),
+            model: "gpt-4o-mini".to_owned(),
+            max_tokens: 2048,
             temperature: 0.3,
         }
     }
@@ -87,15 +87,17 @@ struct ResponseMessage {
 
 #[async_trait]
 impl Provider for ApiKeyProvider {
-    fn name(&self) -> &str { "api-key" }
+    fn name(&self) -> &str {
+        "api-key"
+    }
 
     async fn complete(&self, messages: &[Message]) -> anyhow::Result<String> {
         let api_messages: Vec<ApiMessage> = messages
             .iter()
             .map(|m| ApiMessage {
                 role: match m.role {
-                    Role::System    => "system",
-                    Role::User      => "user",
+                    Role::System => "system",
+                    Role::User => "user",
                     Role::Assistant => "assistant",
                 },
                 content: &m.content,
@@ -103,9 +105,9 @@ impl Provider for ApiKeyProvider {
             .collect();
 
         let body = ChatRequest {
-            model:       &self.config.model,
-            messages:    api_messages,
-            max_tokens:  self.config.max_tokens,
+            model: &self.config.model,
+            messages: api_messages,
+            max_tokens: self.config.max_tokens,
             temperature: self.config.temperature,
         };
 

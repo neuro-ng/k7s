@@ -22,14 +22,14 @@ pub struct ExecResult {
     /// Exit code of the subprocess, or `None` if the process could not be started.
     pub exit_code: Option<i32>,
     /// Command that was run (for display / logging).
-    pub command:   String,
+    pub command: String,
 }
 
 /// Parameters for a `kubectl exec` invocation.
 #[derive(Debug, Clone)]
 pub struct ShellExec {
     /// Pod name.
-    pub pod:       String,
+    pub pod: String,
     /// Namespace.
     pub namespace: String,
     /// Container name. When `None`, kubectl uses the first container.
@@ -37,19 +37,19 @@ pub struct ShellExec {
     /// Shell command to run inside the container.
     ///
     /// Defaults to trying `/bin/bash` then `/bin/sh`.
-    pub shell:     Option<String>,
+    pub shell: Option<String>,
     /// Optional kubeconfig context to pass through.
-    pub context:   Option<String>,
+    pub context: Option<String>,
 }
 
 impl ShellExec {
     pub fn new(pod: impl Into<String>, namespace: impl Into<String>) -> Self {
         Self {
-            pod:       pod.into(),
+            pod: pod.into(),
             namespace: namespace.into(),
             container: None,
-            shell:     None,
-            context:   None,
+            shell: None,
+            context: None,
         }
     }
 
@@ -81,7 +81,8 @@ impl ShellExec {
         let mut args = vec![
             "exec".to_owned(),
             "-it".to_owned(),
-            "-n".to_owned(), self.namespace.clone(),
+            "-n".to_owned(),
+            self.namespace.clone(),
         ];
 
         if let Some(ctx) = &self.context {
@@ -98,9 +99,7 @@ impl ShellExec {
         let command_str = format!("kubectl {}", args.join(" "));
         tracing::info!(command = %command_str, "launching shell exec");
 
-        let status = Command::new("kubectl")
-            .args(&args)
-            .status();
+        let status = Command::new("kubectl").args(&args).status();
 
         let exit_code = match status {
             Ok(s) => s.code(),
@@ -110,7 +109,10 @@ impl ShellExec {
             }
         };
 
-        ExecResult { exit_code, command: command_str }
+        ExecResult {
+            exit_code,
+            command: command_str,
+        }
     }
 }
 
@@ -121,19 +123,19 @@ impl ShellExec {
 ///
 /// Same TUI suspension precondition as `ShellExec::run()`.
 pub struct KubectlEdit {
-    pub resource:  String,
-    pub name:      String,
+    pub resource: String,
+    pub name: String,
     pub namespace: Option<String>,
-    pub context:   Option<String>,
+    pub context: Option<String>,
 }
 
 impl KubectlEdit {
     pub fn new(resource: impl Into<String>, name: impl Into<String>) -> Self {
         Self {
-            resource:  resource.into(),
-            name:      name.into(),
+            resource: resource.into(),
+            name: name.into(),
             namespace: None,
-            context:   None,
+            context: None,
         }
     }
 
@@ -171,7 +173,10 @@ impl KubectlEdit {
             }
         };
 
-        ExecResult { exit_code, command: command_str }
+        ExecResult {
+            exit_code,
+            command: command_str,
+        }
     }
 }
 

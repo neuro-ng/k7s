@@ -187,14 +187,20 @@ mod tests {
 
     #[test]
     fn parse_ns_command() {
-        assert_eq!(parse_command("ns default"), PromptSubmit::Namespace(Some("default".to_owned())));
+        assert_eq!(
+            parse_command("ns default"),
+            PromptSubmit::Namespace(Some("default".to_owned()))
+        );
         assert_eq!(parse_command("ns -"), PromptSubmit::Namespace(None));
         assert_eq!(parse_command("ns"), PromptSubmit::Namespace(None));
     }
 
     #[test]
     fn parse_ctx_command() {
-        assert_eq!(parse_command("ctx prod"), PromptSubmit::Context("prod".to_owned()));
+        assert_eq!(
+            parse_command("ctx prod"),
+            PromptSubmit::Context("prod".to_owned())
+        );
     }
 
     #[test]

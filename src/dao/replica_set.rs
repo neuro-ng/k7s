@@ -4,8 +4,8 @@ use kube::api::{Patch, PatchParams};
 use kube::{Api, Client};
 use serde_json::json;
 
-use crate::client::Gvr;
 use crate::client::gvr::well_known;
+use crate::client::Gvr;
 use crate::dao::generic::GenericDao;
 use crate::dao::traits::{Accessor, DeleteOptions, Describer, Nuker, Resource, Scalable};
 
@@ -37,25 +37,45 @@ impl Accessor for ReplicaSetDao {
         self.inner.gvr()
     }
 
-    async fn list(&self, client: &Client, namespace: Option<&str>) -> anyhow::Result<Vec<Resource>> {
+    async fn list(
+        &self,
+        client: &Client,
+        namespace: Option<&str>,
+    ) -> anyhow::Result<Vec<Resource>> {
         self.inner.list(client, namespace).await
     }
 
-    async fn get(&self, client: &Client, namespace: Option<&str>, name: &str) -> anyhow::Result<Resource> {
+    async fn get(
+        &self,
+        client: &Client,
+        namespace: Option<&str>,
+        name: &str,
+    ) -> anyhow::Result<Resource> {
         self.inner.get(client, namespace, name).await
     }
 }
 
 #[async_trait]
 impl Nuker for ReplicaSetDao {
-    async fn delete(&self, client: &Client, namespace: Option<&str>, name: &str, opts: DeleteOptions) -> anyhow::Result<()> {
+    async fn delete(
+        &self,
+        client: &Client,
+        namespace: Option<&str>,
+        name: &str,
+        opts: DeleteOptions,
+    ) -> anyhow::Result<()> {
         self.inner.delete(client, namespace, name, opts).await
     }
 }
 
 #[async_trait]
 impl Describer for ReplicaSetDao {
-    async fn describe(&self, client: &Client, namespace: Option<&str>, name: &str) -> anyhow::Result<String> {
+    async fn describe(
+        &self,
+        client: &Client,
+        namespace: Option<&str>,
+        name: &str,
+    ) -> anyhow::Result<String> {
         let ns = namespace.unwrap_or("default");
         let api = self.api(client, ns);
         let rs: ReplicaSet = api.get(name).await?;
@@ -80,7 +100,10 @@ impl Describer for ReplicaSetDao {
                 status.ready_replicas.unwrap_or(0),
                 status.replicas
             ));
-            lines.push(format!("Available: {}", status.available_replicas.unwrap_or(0)));
+            lines.push(format!(
+                "Available: {}",
+                status.available_replicas.unwrap_or(0)
+            ));
         }
 
         // Owner reference (usually a Deployment).
@@ -93,17 +116,29 @@ impl Describer for ReplicaSetDao {
         Ok(lines.join("\n"))
     }
 
-    async fn to_yaml(&self, client: &Client, namespace: Option<&str>, name: &str) -> anyhow::Result<String> {
+    async fn to_yaml(
+        &self,
+        client: &Client,
+        namespace: Option<&str>,
+        name: &str,
+    ) -> anyhow::Result<String> {
         self.inner.to_yaml(client, namespace, name).await
     }
 }
 
 #[async_trait]
 impl Scalable for ReplicaSetDao {
-    async fn scale(&self, client: &Client, namespace: &str, name: &str, replicas: i32) -> anyhow::Result<()> {
+    async fn scale(
+        &self,
+        client: &Client,
+        namespace: &str,
+        name: &str,
+        replicas: i32,
+    ) -> anyhow::Result<()> {
         let api = self.api(client, namespace);
         let patch = json!({ "spec": { "replicas": replicas } });
-        api.patch(name, &PatchParams::apply("k7s"), &Patch::Merge(&patch)).await?;
+        api.patch(name, &PatchParams::apply("k7s"), &Patch::Merge(&patch))
+            .await?;
         tracing::info!(replicaset = name, namespace, replicas, "replicaset scaled");
         Ok(())
     }

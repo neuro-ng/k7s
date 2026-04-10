@@ -4,4 +4,4 @@
 
 pub mod log;
 
-pub use log::{LogItem, LogLevel, LogModel, merge_container_logs};
+pub use log::{merge_container_logs, LogItem, LogLevel, LogModel};

@@ -43,12 +43,17 @@ impl AliasConfig {
 
     /// Register a new alias (for runtime additions).
     pub fn insert(&mut self, alias: impl Into<String>, target: impl Into<String>) {
-        self.aliases.insert(alias.into().to_lowercase(), target.into());
+        self.aliases
+            .insert(alias.into().to_lowercase(), target.into());
     }
 
     /// All aliases sorted for stable display.
     pub fn sorted(&self) -> Vec<(&str, &str)> {
-        let mut v: Vec<_> = self.aliases.iter().map(|(k, v)| (k.as_str(), v.as_str())).collect();
+        let mut v: Vec<_> = self
+            .aliases
+            .iter()
+            .map(|(k, v)| (k.as_str(), v.as_str()))
+            .collect();
         v.sort_by_key(|(k, _)| *k);
         v
     }

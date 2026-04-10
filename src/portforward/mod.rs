@@ -49,9 +49,9 @@ pub enum ForwardStatus {
 impl ForwardStatus {
     pub fn as_str(&self) -> &str {
         match self {
-            Self::Running      => "running",
-            Self::Stopped      => "stopped",
-            Self::Failed(_)    => "failed",
+            Self::Running => "running",
+            Self::Stopped => "stopped",
+            Self::Failed(_) => "failed",
         }
     }
 }
@@ -60,16 +60,16 @@ impl ForwardStatus {
 
 /// A single managed port-forward with its child process.
 pub struct ForwardEntry {
-    pub id:         ForwardId,
-    pub pod:        String,
-    pub namespace:  String,
+    pub id: ForwardId,
+    pub pod: String,
+    pub namespace: String,
     /// Target port inside the pod.
-    pub pod_port:   u16,
+    pub pod_port: u16,
     /// Local port on 127.0.0.1.
     pub local_port: u16,
-    pub status:     ForwardStatus,
+    pub status: ForwardStatus,
     /// The running kubectl process (None after stop).
-    child:          Option<Child>,
+    child: Option<Child>,
 }
 
 impl ForwardEntry {
@@ -100,7 +100,7 @@ impl ForwardEntry {
                 self.status = ForwardStatus::Failed(msg);
                 true
             }
-            Ok(None) => false,   // still running
+            Ok(None) => false, // still running
             Err(e) => {
                 self.status = ForwardStatus::Failed(e.to_string());
                 true
@@ -112,8 +112,10 @@ impl ForwardEntry {
     pub fn display(&self) -> String {
         format!(
             "{}/{} {}:{} → 127.0.0.1:{}  [{}]",
-            self.namespace, self.pod,
-            self.pod, self.pod_port,
+            self.namespace,
+            self.pod,
+            self.pod,
+            self.pod_port,
             self.local_port,
             self.status.as_str(),
         )
@@ -143,7 +145,7 @@ impl PortForwardManager {
     pub fn new() -> Self {
         Self {
             forwards: HashMap::new(),
-            context:  None,
+            context: None,
         }
     }
 
@@ -158,12 +160,12 @@ impl PortForwardManager {
     /// `kubectl port-forward` could not be spawned.
     pub fn add(
         &mut self,
-        namespace:  impl Into<String>,
-        pod:        impl Into<String>,
-        pod_port:   u16,
+        namespace: impl Into<String>,
+        pod: impl Into<String>,
+        pod_port: u16,
         local_port: u16,
     ) -> anyhow::Result<ForwardId> {
-        let ns  = namespace.into();
+        let ns = namespace.into();
         let pod = pod.into();
 
         let mut args = vec!["port-forward".to_owned()];
@@ -173,7 +175,8 @@ impl PortForwardManager {
         }
 
         args.extend([
-            "-n".to_owned(), ns.clone(),
+            "-n".to_owned(),
+            ns.clone(),
             pod.clone(),
             format!("{local_port}:{pod_port}"),
         ]);
@@ -197,15 +200,18 @@ impl PortForwardManager {
             "port-forward started"
         );
 
-        self.forwards.insert(id, ForwardEntry {
+        self.forwards.insert(
             id,
-            pod,
-            namespace: ns,
-            pod_port,
-            local_port,
-            status: ForwardStatus::Running,
-            child:  Some(child),
-        });
+            ForwardEntry {
+                id,
+                pod,
+                namespace: ns,
+                pod_port,
+                local_port,
+                status: ForwardStatus::Running,
+                child: Some(child),
+            },
+        );
 
         Ok(id)
     }
@@ -241,12 +247,18 @@ impl PortForwardManager {
             .collect()
     }
 
-    pub fn is_empty(&self) -> bool { self.forwards.is_empty() }
-    pub fn len(&self)      -> usize { self.forwards.len() }
+    pub fn is_empty(&self) -> bool {
+        self.forwards.is_empty()
+    }
+    pub fn len(&self) -> usize {
+        self.forwards.len()
+    }
 }
 
 impl Default for PortForwardManager {
-    fn default() -> Self { Self::new() }
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 // ─── Snapshot for TUI rendering ──────────────────────────────────────────────
@@ -254,25 +266,25 @@ impl Default for PortForwardManager {
 /// Immutable view of a forward entry — passed to the list renderer.
 #[derive(Debug, Clone)]
 pub struct ForwardSnapshot {
-    pub id:         ForwardId,
-    pub namespace:  String,
-    pub pod:        String,
-    pub pod_port:   u16,
+    pub id: ForwardId,
+    pub namespace: String,
+    pub pod: String,
+    pub pod_port: u16,
     pub local_port: u16,
-    pub status:     String,
+    pub status: String,
 }
 
 impl ForwardSnapshot {
     pub fn from_entry(e: &ForwardEntry) -> Self {
         Self {
-            id:         e.id,
-            namespace:  e.namespace.clone(),
-            pod:        e.pod.clone(),
-            pod_port:   e.pod_port,
+            id: e.id,
+            namespace: e.namespace.clone(),
+            pod: e.pod.clone(),
+            pod_port: e.pod_port,
             local_port: e.local_port,
-            status:     match &e.status {
-                ForwardStatus::Running   => "running".to_owned(),
-                ForwardStatus::Stopped   => "stopped".to_owned(),
+            status: match &e.status {
+                ForwardStatus::Running => "running".to_owned(),
+                ForwardStatus::Stopped => "stopped".to_owned(),
                 ForwardStatus::Failed(m) => format!("failed: {m}"),
             },
         }
@@ -286,14 +298,17 @@ impl ForwardSnapshot {
 /// Renders a table of current forwards with their status.
 pub struct PortForwardView {
     /// Snapshot of current forwards (refreshed each tick from the manager).
-    pub entries:  Vec<ForwardSnapshot>,
+    pub entries: Vec<ForwardSnapshot>,
     /// Selected row index.
     pub selected: usize,
 }
 
 impl PortForwardView {
     pub fn new() -> Self {
-        Self { entries: Vec::new(), selected: 0 }
+        Self {
+            entries: Vec::new(),
+            selected: 0,
+        }
     }
 
     /// Refresh from the manager state.
@@ -310,7 +325,9 @@ impl PortForwardView {
         }
     }
 
-    pub fn up(&mut self)   { self.selected = self.selected.saturating_sub(1); }
+    pub fn up(&mut self) {
+        self.selected = self.selected.saturating_sub(1);
+    }
     pub fn down(&mut self) {
         if !self.entries.is_empty() {
             self.selected = (self.selected + 1).min(self.entries.len() - 1);
@@ -322,11 +339,15 @@ impl PortForwardView {
         self.entries.get(self.selected).map(|e| e.id)
     }
 
-    pub fn is_empty(&self) -> bool { self.entries.is_empty() }
+    pub fn is_empty(&self) -> bool {
+        self.entries.is_empty()
+    }
 }
 
 impl Default for PortForwardView {
-    fn default() -> Self { Self::new() }
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 #[cfg(test)]
@@ -347,13 +368,13 @@ mod tests {
     #[test]
     fn snapshot_from_running_entry() {
         let entry = ForwardEntry {
-            id:         ForwardId(10),
-            pod:        "api".to_owned(),
-            namespace:  "prod".to_owned(),
-            pod_port:   8080,
+            id: ForwardId(10),
+            pod: "api".to_owned(),
+            namespace: "prod".to_owned(),
+            pod_port: 8080,
             local_port: 9090,
-            status:     ForwardStatus::Running,
-            child:      None,
+            status: ForwardStatus::Running,
+            child: None,
         };
         let s = ForwardSnapshot::from_entry(&entry);
         assert_eq!(s.status, "running");
@@ -371,8 +392,8 @@ mod tests {
 
     #[test]
     fn forward_status_as_str() {
-        assert_eq!(ForwardStatus::Running.as_str(),         "running");
-        assert_eq!(ForwardStatus::Stopped.as_str(),         "stopped");
+        assert_eq!(ForwardStatus::Running.as_str(), "running");
+        assert_eq!(ForwardStatus::Stopped.as_str(), "stopped");
         assert_eq!(ForwardStatus::Failed("x".into()).as_str(), "failed");
     }
 }

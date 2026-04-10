@@ -9,18 +9,18 @@ mod ui;
 
 // Future modules — declared here so the compiler resolves them
 // as the project grows through the roadmap phases.
+mod ai;
 mod client;
 mod dao;
 mod exec;
+mod health;
 mod model;
 mod portforward;
 mod render;
 mod sanitizer;
-mod ai;
+mod util;
 mod view;
 mod watch;
-mod health;
-mod util;
 
 use clap::Parser;
 use tracing_subscriber::EnvFilter;
@@ -107,12 +107,8 @@ fn main() -> anyhow::Result<()> {
     })
 }
 
-fn init_tracing(
-    level: &str,
-    log_file: Option<&std::path::Path>,
-) -> anyhow::Result<()> {
-    let filter = EnvFilter::try_from_default_env()
-        .unwrap_or_else(|_| EnvFilter::new(level));
+fn init_tracing(level: &str, log_file: Option<&std::path::Path>) -> anyhow::Result<()> {
+    let filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new(level));
 
     // The TUI owns the terminal, so log to a file or discard to avoid
     // corrupting the screen. Only write to stderr when no TUI is running

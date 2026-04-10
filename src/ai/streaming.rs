@@ -72,8 +72,11 @@ impl StreamHandle {
                         break;
                     }
                 }
-                Err(mpsc::error::TryRecvError::Empty)        => break,
-                Err(mpsc::error::TryRecvError::Disconnected) => { finished = true; break; }
+                Err(mpsc::error::TryRecvError::Empty) => break,
+                Err(mpsc::error::TryRecvError::Disconnected) => {
+                    finished = true;
+                    break;
+                }
             }
         }
         (chunks, finished)
@@ -161,9 +164,7 @@ pub fn send_streaming(
     let user_msg = user_message.into();
     let messages = session.messages_for_send(&user_msg);
 
-    let estimated: u32 = messages.iter()
-        .map(|m| estimate_tokens(&m.content))
-        .sum();
+    let estimated: u32 = messages.iter().map(|m| estimate_tokens(&m.content)).sum();
 
     // Budget check (delegates to the session's budget).
     use crate::ai::token_budget::BudgetCheck;
@@ -172,7 +173,7 @@ pub fn send_streaming(
         BudgetCheck::Exhausted => {
             return Err(SessionError::BudgetExhausted {
                 used: session.budget().used(),
-                max:  session.budget().max_session(),
+                max: session.budget().max_session(),
             });
         }
         BudgetCheck::QueryTooLarge { tokens, limit } => {
@@ -181,7 +182,10 @@ pub fn send_streaming(
     }
 
     let handle = stream_complete(provider, messages, 256);
-    Ok(StreamingSend { handle, estimated_tokens: estimated })
+    Ok(StreamingSend {
+        handle,
+        estimated_tokens: estimated,
+    })
 }
 
 // ─── Tests ────────────────────────────────────────────────────────────────────
@@ -207,11 +211,13 @@ mod tests {
             for chunk in chunks {
                 match chunk {
                     StreamChunk::Delta(d) => text.push_str(&d),
-                    StreamChunk::Done     => {}
+                    StreamChunk::Done => {}
                     StreamChunk::Error(e) => panic!("unexpected error: {e}"),
                 }
             }
-            if done { finished = true; }
+            if done {
+                finished = true;
+            }
         }
 
         assert!(text.contains("hello world"), "got: {text}");
@@ -219,13 +225,15 @@ mod tests {
 
     #[tokio::test]
     async fn error_provider_emits_error_chunk() {
-        use async_trait::async_trait;
         use crate::ai::provider::Provider;
+        use async_trait::async_trait;
 
         struct FailProvider;
         #[async_trait]
         impl Provider for FailProvider {
-            fn name(&self) -> &str { "fail" }
+            fn name(&self) -> &str {
+                "fail"
+            }
             async fn complete(&self, _: &[Message]) -> anyhow::Result<String> {
                 anyhow::bail!("simulated failure")
             }
@@ -243,7 +251,9 @@ mod tests {
                     got_error = true;
                 }
             }
-            if done { break; }
+            if done {
+                break;
+            }
         }
         assert!(got_error);
     }

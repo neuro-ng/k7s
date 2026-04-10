@@ -35,15 +35,10 @@ impl ClientConfig {
             .unwrap_or_else(|| "default".to_string());
 
         // Verify the context actually exists.
-        let ctx_exists = kubeconfig
-            .contexts
-            .iter()
-            .any(|c| c.name == context_name);
+        let ctx_exists = kubeconfig.contexts.iter().any(|c| c.name == context_name);
 
         if !ctx_exists {
-            return Err(ClientError::ContextNotFound {
-                name: context_name,
-            });
+            return Err(ClientError::ContextNotFound { name: context_name });
         }
 
         let opts = KubeConfigOptions {
@@ -68,14 +63,14 @@ impl ClientConfig {
     ///
     /// Returns the server version string (e.g. `"v1.30.2"`) on success.
     pub async fn check_connectivity(&self) -> Result<String, ClientError> {
-        let version = self
-            .client
-            .apiserver_version()
-            .await
-            .map_err(|e| ClientError::ConnectivityCheck {
-                server: self.server.clone(),
-                source: Box::new(e),
-            })?;
+        let version =
+            self.client
+                .apiserver_version()
+                .await
+                .map_err(|e| ClientError::ConnectivityCheck {
+                    server: self.server.clone(),
+                    source: Box::new(e),
+                })?;
 
         let version_str = format!("v{}.{}", version.major, version.minor);
         tracing::info!(version = %version_str, "API server reachable");
@@ -90,7 +85,9 @@ impl ClientConfig {
         let api: Api<Namespace> = Api::all(self.client.clone());
         let list = api.list(&Default::default()).await?;
 
-        let names = list.items.into_iter()
+        let names = list
+            .items
+            .into_iter()
             .filter_map(|ns| ns.metadata.name)
             .collect();
 
@@ -107,7 +104,9 @@ mod tests {
 
     #[test]
     fn context_not_found_error_message() {
-        let err = ClientError::ContextNotFound { name: "missing-ctx".to_string() };
+        let err = ClientError::ContextNotFound {
+            name: "missing-ctx".to_string(),
+        };
         assert!(err.to_string().contains("missing-ctx"));
     }
 }

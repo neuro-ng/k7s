@@ -135,15 +135,42 @@ pub struct KeyHint {
 
 /// Default hints shown when browsing a resource list.
 pub const LIST_HINTS: &[KeyHint] = &[
-    KeyHint { key: "↑↓/jk", description: "Navigate" },
-    KeyHint { key: "⏎", description: "Select" },
-    KeyHint { key: "d", description: "Describe" },
-    KeyHint { key: "y", description: "YAML" },
-    KeyHint { key: "l", description: "Logs" },
-    KeyHint { key: "D", description: "Delete" },
-    KeyHint { key: ":", description: "Command" },
-    KeyHint { key: "?", description: "Help" },
-    KeyHint { key: "q", description: "Quit" },
+    KeyHint {
+        key: "↑↓/jk",
+        description: "Navigate",
+    },
+    KeyHint {
+        key: "⏎",
+        description: "Select",
+    },
+    KeyHint {
+        key: "d",
+        description: "Describe",
+    },
+    KeyHint {
+        key: "y",
+        description: "YAML",
+    },
+    KeyHint {
+        key: "l",
+        description: "Logs",
+    },
+    KeyHint {
+        key: "D",
+        description: "Delete",
+    },
+    KeyHint {
+        key: ":",
+        description: "Command",
+    },
+    KeyHint {
+        key: "?",
+        description: "Help",
+    },
+    KeyHint {
+        key: "q",
+        description: "Quit",
+    },
 ];
 
 /// Format hints as a single status-bar string.

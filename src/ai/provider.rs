@@ -15,13 +15,22 @@ pub struct Message {
 
 impl Message {
     pub fn system(content: impl Into<String>) -> Self {
-        Self { role: Role::System, content: content.into() }
+        Self {
+            role: Role::System,
+            content: content.into(),
+        }
     }
     pub fn user(content: impl Into<String>) -> Self {
-        Self { role: Role::User, content: content.into() }
+        Self {
+            role: Role::User,
+            content: content.into(),
+        }
     }
     pub fn assistant(content: impl Into<String>) -> Self {
-        Self { role: Role::Assistant, content: content.into() }
+        Self {
+            role: Role::Assistant,
+            content: content.into(),
+        }
     }
 }
 
@@ -58,11 +67,15 @@ pub mod test_helpers {
 
     #[async_trait]
     impl Provider for EchoProvider {
-        fn name(&self) -> &str { "echo" }
+        fn name(&self) -> &str {
+            "echo"
+        }
 
         async fn complete(&self, messages: &[Message]) -> anyhow::Result<String> {
             // Echo back the last user message prefixed with "Echo: ".
-            let last = messages.iter().rev()
+            let last = messages
+                .iter()
+                .rev()
                 .find(|m| m.role == Role::User)
                 .map(|m| m.content.as_str())
                 .unwrap_or("(no message)");

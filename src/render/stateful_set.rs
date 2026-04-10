@@ -1,8 +1,8 @@
 use ratatui::layout::Constraint;
 use serde_json::Value;
 
-use crate::client::Gvr;
 use crate::client::gvr::well_known;
+use crate::client::Gvr;
 use crate::render::{age_from_obj, meta_name, ColumnDef, RenderedRow, Renderer};
 
 pub struct StatefulSetRenderer {
@@ -15,26 +15,38 @@ impl StatefulSetRenderer {
         Self {
             gvr: well_known::stateful_sets(),
             columns: vec![
-                ColumnDef::new("NAME",    Constraint::Min(20)),
-                ColumnDef::new("READY",   Constraint::Length(8)),
-                ColumnDef::new("AGE",     Constraint::Length(6)),
+                ColumnDef::new("NAME", Constraint::Min(20)),
+                ColumnDef::new("READY", Constraint::Length(8)),
+                ColumnDef::new("AGE", Constraint::Length(6)),
             ],
         }
     }
 }
 
 impl Default for StatefulSetRenderer {
-    fn default() -> Self { Self::new() }
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl Renderer for StatefulSetRenderer {
-    fn gvr(&self) -> &Gvr { &self.gvr }
-    fn columns(&self) -> &[ColumnDef] { &self.columns }
+    fn gvr(&self) -> &Gvr {
+        &self.gvr
+    }
+    fn columns(&self) -> &[ColumnDef] {
+        &self.columns
+    }
 
     fn render(&self, obj: &Value) -> RenderedRow {
         let name = meta_name(obj).to_owned();
-        let desired = obj.pointer("/spec/replicas").and_then(|v| v.as_i64()).unwrap_or(1);
-        let ready   = obj.pointer("/status/readyReplicas").and_then(|v| v.as_i64()).unwrap_or(0);
+        let desired = obj
+            .pointer("/spec/replicas")
+            .and_then(|v| v.as_i64())
+            .unwrap_or(1);
+        let ready = obj
+            .pointer("/status/readyReplicas")
+            .and_then(|v| v.as_i64())
+            .unwrap_or(0);
         let (age, age_secs) = age_from_obj(obj);
 
         RenderedRow {

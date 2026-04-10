@@ -15,21 +15,37 @@ use crate::render::RenderedRow;
 
 /// Column header names for the Helm release table.
 pub fn headers() -> Vec<&'static str> {
-    vec!["NAME", "NAMESPACE", "REVISION", "STATUS", "CHART", "APP VERSION", "UPDATED"]
+    vec![
+        "NAME",
+        "NAMESPACE",
+        "REVISION",
+        "STATUS",
+        "CHART",
+        "APP VERSION",
+        "UPDATED",
+    ]
 }
 
 /// Render a single Helm release value into a table row.
 pub fn render(obj: &Value) -> RenderedRow {
-    let name        = str_field(obj, "name");
-    let namespace   = str_field(obj, "namespace");
-    let revision    = str_field(obj, "revision");
-    let status      = str_field(obj, "status");
-    let chart       = str_field(obj, "chart");
+    let name = str_field(obj, "name");
+    let namespace = str_field(obj, "namespace");
+    let revision = str_field(obj, "revision");
+    let status = str_field(obj, "status");
+    let chart = str_field(obj, "chart");
     let app_version = str_field(obj, "app_version");
-    let updated     = format_updated(str_field(obj, "updated"));
+    let updated = format_updated(str_field(obj, "updated"));
 
     RenderedRow {
-        cells: vec![name, namespace, revision, status, chart, app_version, updated],
+        cells: vec![
+            name,
+            namespace,
+            revision,
+            status,
+            chart,
+            app_version,
+            updated,
+        ],
         age_secs: 0,
     }
 }

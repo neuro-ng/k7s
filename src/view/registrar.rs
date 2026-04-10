@@ -9,8 +9,8 @@
 
 use crate::client::Gvr;
 use crate::dao::Registry;
-use crate::view::actions::{ActionId, ResourceAction, actions_for};
-use crate::view::browser::{BrowserView, browser_for_resource};
+use crate::view::actions::{actions_for, ActionId, ResourceAction};
+use crate::view::browser::{browser_for_resource, BrowserView};
 
 /// A fully resolved view entry for a resource type.
 pub struct ViewEntry {
@@ -31,7 +31,11 @@ pub fn view_for(alias: &str, registry: &Registry) -> Option<ViewEntry> {
     let browser = browser_for_resource(alias, registry)?;
     let actions = actions_for(&gvr);
 
-    Some(ViewEntry { browser, actions, gvr })
+    Some(ViewEntry {
+        browser,
+        actions,
+        gvr,
+    })
 }
 
 impl ViewEntry {
@@ -86,7 +90,9 @@ mod tests {
     fn action_for_key_lookup() {
         let reg = Registry::with_builtins();
         let entry = view_for("po", &reg).unwrap();
-        let action = entry.action_for_key("l").expect("l key should exist for pods");
+        let action = entry
+            .action_for_key("l")
+            .expect("l key should exist for pods");
         assert_eq!(action.id, ActionId::Logs);
     }
 }

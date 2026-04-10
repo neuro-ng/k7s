@@ -4,8 +4,8 @@ use k8s_openapi::apimachinery::pkg::apis::meta::v1::ObjectMeta;
 use kube::api::PostParams;
 use kube::{Api, Client};
 
-use crate::client::Gvr;
 use crate::client::gvr::well_known;
+use crate::client::Gvr;
 use crate::dao::generic::GenericDao;
 use crate::dao::traits::{Accessor, DeleteOptions, Describer, Nuker, Resource};
 
@@ -66,7 +66,12 @@ impl CronJobDao {
         let job_api: Api<Job> = Api::namespaced(client.clone(), namespace);
         job_api.create(&PostParams::default(), &job).await?;
 
-        tracing::info!(cronjob = name, job = job_name, namespace, "cronjob triggered manually");
+        tracing::info!(
+            cronjob = name,
+            job = job_name,
+            namespace,
+            "cronjob triggered manually"
+        );
         Ok(job_name)
     }
 }
@@ -93,25 +98,45 @@ impl Accessor for CronJobDao {
         self.inner.gvr()
     }
 
-    async fn list(&self, client: &Client, namespace: Option<&str>) -> anyhow::Result<Vec<Resource>> {
+    async fn list(
+        &self,
+        client: &Client,
+        namespace: Option<&str>,
+    ) -> anyhow::Result<Vec<Resource>> {
         self.inner.list(client, namespace).await
     }
 
-    async fn get(&self, client: &Client, namespace: Option<&str>, name: &str) -> anyhow::Result<Resource> {
+    async fn get(
+        &self,
+        client: &Client,
+        namespace: Option<&str>,
+        name: &str,
+    ) -> anyhow::Result<Resource> {
         self.inner.get(client, namespace, name).await
     }
 }
 
 #[async_trait]
 impl Nuker for CronJobDao {
-    async fn delete(&self, client: &Client, namespace: Option<&str>, name: &str, opts: DeleteOptions) -> anyhow::Result<()> {
+    async fn delete(
+        &self,
+        client: &Client,
+        namespace: Option<&str>,
+        name: &str,
+        opts: DeleteOptions,
+    ) -> anyhow::Result<()> {
         self.inner.delete(client, namespace, name, opts).await
     }
 }
 
 #[async_trait]
 impl Describer for CronJobDao {
-    async fn describe(&self, client: &Client, namespace: Option<&str>, name: &str) -> anyhow::Result<String> {
+    async fn describe(
+        &self,
+        client: &Client,
+        namespace: Option<&str>,
+        name: &str,
+    ) -> anyhow::Result<String> {
         let ns = namespace.unwrap_or("default");
         let api = self.api(client, ns);
         let cj: CronJob = api.get(name).await?;
@@ -122,7 +147,10 @@ impl Describer for CronJobDao {
 
         if let Some(spec) = &cj.spec {
             lines.push(format!("Schedule:         {}", spec.schedule));
-            lines.push(format!("Suspend:          {}", spec.suspend.unwrap_or(false)));
+            lines.push(format!(
+                "Suspend:          {}",
+                spec.suspend.unwrap_or(false)
+            ));
             lines.push(format!(
                 "Concurrency:      {}",
                 spec.concurrency_policy.as_deref().unwrap_or("Allow")
@@ -139,13 +167,21 @@ impl Describer for CronJobDao {
             if let Some(last) = &status.last_schedule_time {
                 lines.push(format!("LastSchedule:     {}", last.0));
             }
-            lines.push(format!("Active Jobs:      {}", status.active.as_ref().map_or(0, |a| a.len())));
+            lines.push(format!(
+                "Active Jobs:      {}",
+                status.active.as_ref().map_or(0, |a| a.len())
+            ));
         }
 
         Ok(lines.join("\n"))
     }
 
-    async fn to_yaml(&self, client: &Client, namespace: Option<&str>, name: &str) -> anyhow::Result<String> {
+    async fn to_yaml(
+        &self,
+        client: &Client,
+        namespace: Option<&str>,
+        name: &str,
+    ) -> anyhow::Result<String> {
         self.inner.to_yaml(client, namespace, name).await
     }
 }

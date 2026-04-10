@@ -60,29 +60,31 @@ use serde::{Deserialize, Serialize};
 #[serde(rename_all = "camelCase")]
 pub struct Plugin {
     /// Key binding string shown in the hints bar (e.g. `"Shift-F"`).
-    pub short_cut:   String,
+    pub short_cut: String,
     /// Human-readable description for the hints bar.
     pub description: String,
     /// Resource types (GVR aliases) this plugin applies to.
     /// Use `["all"]` to apply everywhere.
-    pub scopes:      Vec<String>,
+    pub scopes: Vec<String>,
     /// The executable to run.
-    pub command:     String,
+    pub command: String,
     /// Arguments passed to the command (template variables expanded).
     #[serde(default)]
-    pub args:        Vec<String>,
+    pub args: Vec<String>,
     /// When true, run the command in the background (don't suspend TUI).
     #[serde(default)]
-    pub background:  bool,
+    pub background: bool,
     /// When true, prompt for confirmation before running.
     #[serde(default)]
-    pub confirm:     bool,
+    pub confirm: bool,
 }
 
 impl Plugin {
     /// Check if this plugin applies to a given resource type (by alias).
     pub fn applies_to(&self, scope: &str) -> bool {
-        self.scopes.iter().any(|s| s == "all" || s.eq_ignore_ascii_case(scope))
+        self.scopes
+            .iter()
+            .any(|s| s == "all" || s.eq_ignore_ascii_case(scope))
     }
 
     /// Expand template variables in the args list.
@@ -113,7 +115,9 @@ impl Plugin {
                 .stdout(std::process::Stdio::null())
                 .stderr(std::process::Stdio::null())
                 .spawn()
-                .map_err(|e| anyhow::anyhow!("plugin '{}' failed to spawn: {e}", ctx.plugin_name))?;
+                .map_err(|e| {
+                    anyhow::anyhow!("plugin '{}' failed to spawn: {e}", ctx.plugin_name)
+                })?;
 
             // Detach — we don't wait for it.
             Ok(PluginResult::Background)
@@ -123,7 +127,9 @@ impl Plugin {
                 .status()
                 .map_err(|e| anyhow::anyhow!("plugin '{}' failed to run: {e}", ctx.plugin_name))?;
 
-            Ok(PluginResult::Foreground { exit_code: status.code() })
+            Ok(PluginResult::Foreground {
+                exit_code: status.code(),
+            })
         }
     }
 }
@@ -132,10 +138,10 @@ impl Plugin {
 #[derive(Debug, Clone)]
 pub struct PluginContext {
     pub plugin_name: String,
-    pub name:        String,
-    pub namespace:   String,
-    pub context:     String,
-    pub cluster:     String,
+    pub name: String,
+    pub namespace: String,
+    pub context: String,
+    pub cluster: String,
 }
 
 impl PluginContext {
@@ -145,9 +151,9 @@ impl PluginContext {
     /// consuming the prefix of `$NAMESPACE`.
     pub fn expand(&self, s: &str) -> String {
         s.replace("$NAMESPACE", &self.namespace)
-         .replace("$CONTEXT",   &self.context)
-         .replace("$CLUSTER",   &self.cluster)
-         .replace("$NAME",      &self.name)
+            .replace("$CONTEXT", &self.context)
+            .replace("$CLUSTER", &self.cluster)
+            .replace("$NAME", &self.name)
     }
 }
 
@@ -182,7 +188,9 @@ impl PluginConfig {
 
     /// Plugins applicable to a given resource scope, sorted by short_cut.
     pub fn for_scope(&self, scope: &str) -> Vec<(&str, &Plugin)> {
-        let mut v: Vec<_> = self.plugins.iter()
+        let mut v: Vec<_> = self
+            .plugins
+            .iter()
             .filter(|(_, p)| p.applies_to(scope))
             .map(|(name, p)| (name.as_str(), p))
             .collect();
@@ -273,10 +281,10 @@ restart:
     fn template_expansion() {
         let ctx = PluginContext {
             plugin_name: "test".into(),
-            name:        "my-pod".into(),
-            namespace:   "default".into(),
-            context:     "prod".into(),
-            cluster:     "prod-cluster".into(),
+            name: "my-pod".into(),
+            namespace: "default".into(),
+            context: "prod".into(),
+            cluster: "prod-cluster".into(),
         };
         assert_eq!(ctx.expand("$NAME in $NAMESPACE"), "my-pod in default");
         assert_eq!(ctx.expand("ctx=$CONTEXT"), "ctx=prod");
@@ -288,10 +296,10 @@ restart:
         let pf = cfg.get("k-forward").unwrap();
         let ctx = PluginContext {
             plugin_name: "k-forward".into(),
-            name:        "api-pod".into(),
-            namespace:   "prod".into(),
-            context:     "".into(),
-            cluster:     "".into(),
+            name: "api-pod".into(),
+            namespace: "prod".into(),
+            context: "".into(),
+            cluster: "".into(),
         };
         let args = pf.expand_args(&ctx);
         assert!(args.contains(&"api-pod".to_owned()));

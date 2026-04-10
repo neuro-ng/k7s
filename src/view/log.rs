@@ -20,7 +20,9 @@ use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use ratatui::layout::{Constraint, Direction, Layout, Rect};
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, Borders, Paragraph, Scrollbar, ScrollbarOrientation, ScrollbarState};
+use ratatui::widgets::{
+    Block, Borders, Paragraph, Scrollbar, ScrollbarOrientation, ScrollbarState,
+};
 use ratatui::Frame;
 
 use crate::model::log::{LogItem, LogLevel, LogModel};
@@ -62,10 +64,10 @@ pub struct LogView {
 impl LogView {
     pub fn new(title: impl Into<String>) -> Self {
         Self {
-            title:        title.into(),
-            model:        LogModel::new(),
-            scroll:       0,
-            mode:         InputMode::Normal,
+            title: title.into(),
+            model: LogModel::new(),
+            scroll: 0,
+            mode: InputMode::Normal,
             filter_input: String::new(),
             filter_error: None,
         }
@@ -115,7 +117,11 @@ impl LogView {
         match key.code {
             KeyCode::Enter => {
                 let pattern = self.filter_input.trim().to_owned();
-                match self.model.set_filter(if pattern.is_empty() { None } else { Some(&pattern) }) {
+                match self.model.set_filter(if pattern.is_empty() {
+                    None
+                } else {
+                    Some(&pattern)
+                }) {
                     Ok(()) => {
                         self.filter_error = None;
                         self.scroll = 0;
@@ -134,7 +140,9 @@ impl LogView {
                 self.mode = InputMode::Normal;
                 self.scroll = 0;
             }
-            KeyCode::Backspace => { self.filter_input.pop(); }
+            KeyCode::Backspace => {
+                self.filter_input.pop();
+            }
             KeyCode::Char(c) => {
                 if !key.modifiers.contains(KeyModifiers::CONTROL) {
                     self.filter_input.push(c);
@@ -183,7 +191,10 @@ impl LogView {
         };
 
         let block = Block::default()
-            .title(format!(" Logs: {}{}{} ", self.title, live_indicator, count_label))
+            .title(format!(
+                " Logs: {}{}{} ",
+                self.title, live_indicator, count_label
+            ))
             .borders(Borders::ALL)
             .border_style(Style::default().fg(Color::Cyan));
 
@@ -221,7 +232,10 @@ impl LogView {
             return Line::from(Span::styled(text, base_style));
         }
 
-        let hl_style = base_style.bg(Color::Yellow).fg(Color::Black).add_modifier(Modifier::BOLD);
+        let hl_style = base_style
+            .bg(Color::Yellow)
+            .fg(Color::Black)
+            .add_modifier(Modifier::BOLD);
         let mut spans = Vec::new();
         let mut pos = 0usize;
 
@@ -242,8 +256,16 @@ impl LogView {
     fn render_filter_bar(&self, frame: &mut Frame, area: Rect) {
         let (label, content, border_color) = match &self.mode {
             InputMode::Filter => {
-                let cursor = if self.filter_input.is_empty() { "█" } else { "" };
-                ("Filter » ", format!("{}{}", self.filter_input, cursor), Color::Yellow)
+                let cursor = if self.filter_input.is_empty() {
+                    "█"
+                } else {
+                    ""
+                };
+                (
+                    "Filter » ",
+                    format!("{}{}", self.filter_input, cursor),
+                    Color::Yellow,
+                )
             }
             InputMode::Normal => {
                 let hint = if let Some(err) = &self.filter_error {
@@ -264,7 +286,12 @@ impl LogView {
         let text = if self.model.is_filtered() && self.mode == InputMode::Normal {
             Line::from(vec![
                 Span::styled("Filter: ", Style::default().fg(Color::Yellow)),
-                Span::styled(content, Style::default().fg(Color::White).add_modifier(Modifier::BOLD)),
+                Span::styled(
+                    content,
+                    Style::default()
+                        .fg(Color::White)
+                        .add_modifier(Modifier::BOLD),
+                ),
                 Span::raw("  (Esc to clear)"),
             ])
         } else {
@@ -283,8 +310,8 @@ impl LogView {
 fn level_style(level: LogLevel) -> Style {
     match level {
         LogLevel::Error => Style::default().fg(Color::Red),
-        LogLevel::Warn  => Style::default().fg(Color::Yellow),
-        LogLevel::Info  => Style::default().fg(Color::White),
+        LogLevel::Warn => Style::default().fg(Color::Yellow),
+        LogLevel::Info => Style::default().fg(Color::White),
         LogLevel::Debug => Style::default().fg(Color::DarkGray),
         LogLevel::Trace => Style::default().fg(Color::DarkGray),
         LogLevel::Unknown => Style::default(),

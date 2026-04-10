@@ -5,11 +5,11 @@ use k8s_openapi::api::core::v1::Pod;
 use kube::api::LogParams;
 use kube::{Api, Client};
 
-use crate::client::Gvr;
 use crate::client::gvr::well_known;
+use crate::client::Gvr;
 use crate::dao::generic::{dynamic_to_resource, GenericDao};
 use crate::dao::traits::{
-    Accessor, Describer, DeleteOptions, Loggable, LogOptions, Nuker, Resource,
+    Accessor, DeleteOptions, Describer, LogOptions, Loggable, Nuker, Resource,
 };
 
 pub struct PodDao {
@@ -108,11 +108,7 @@ impl Describer for PodDao {
             if let Some(conditions) = &status.conditions {
                 lines.push("Conditions:".to_owned());
                 for c in conditions {
-                    lines.push(format!(
-                        "  {} = {}",
-                        c.type_,
-                        c.status
-                    ));
+                    lines.push(format!("  {} = {}", c.type_, c.status));
                 }
             }
 
@@ -163,9 +159,9 @@ impl Loggable for PodDao {
 
         // log_stream returns impl AsyncBufRead; convert to a line Stream.
         let reader = api.log_stream(name, &params).await?;
-        let line_stream = reader.lines().map(|result| {
-            result.map_err(|e| anyhow::anyhow!("log stream error: {e}"))
-        });
+        let line_stream = reader
+            .lines()
+            .map(|result| result.map_err(|e| anyhow::anyhow!("log stream error: {e}")));
 
         Ok(Box::pin(line_stream))
     }

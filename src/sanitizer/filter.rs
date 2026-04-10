@@ -5,8 +5,8 @@
 
 use serde_json::{Map, Value};
 
-use crate::client::Gvr;
 use crate::client::gvr::well_known;
+use crate::client::Gvr;
 
 /// Which top-level fields pass through for a given GVR.
 ///
@@ -25,10 +25,11 @@ enum SpecHandler {
     /// Drop the entire `spec` field.
     DropAll,
     /// Keep only structural metadata from containers (names, images, ports,
-    /// resource requests/limits). Drop env var values.
+    /// resource requests/limits). Drop env var values and unknown spec keys.
     ContainerStructure,
-    /// Keep all of `spec` except data/value fields that often contain secrets.
-    KeepStructural,
+    /// Keep only the explicitly listed spec keys (default-deny for infra resources).
+    /// Also strips container env values if containers appear in spec.
+    KeepAllowlisted(&'static [&'static str]),
 }
 
 impl Allowlist {
@@ -79,11 +80,26 @@ impl Allowlist {
             };
         }
 
-        // Core infrastructure: Nodes and Namespaces — only metadata and status
-        if [well_known::nodes(), well_known::namespaces()].contains(gvr) {
+        // Nodes — only topology/scheduling metadata (no containers, no data)
+        if *gvr == well_known::nodes() {
             return Self {
                 top_level_keys: &["metadata", "spec", "status"],
-                spec_handler: SpecHandler::KeepStructural,
+                spec_handler: SpecHandler::KeepAllowlisted(&[
+                    "podCIDR",
+                    "podCIDRs",
+                    "providerID",
+                    "taints",
+                    "unschedulable",
+                    "configSource",
+                ]),
+            };
+        }
+
+        // Namespaces — only lifecycle metadata
+        if *gvr == well_known::namespaces() {
+            return Self {
+                top_level_keys: &["metadata", "spec", "status"],
+                spec_handler: SpecHandler::KeepAllowlisted(&["finalizers"]),
             };
         }
 
@@ -91,7 +107,26 @@ impl Allowlist {
         if *gvr == well_known::services() {
             return Self {
                 top_level_keys: &["metadata", "spec", "status"],
-                spec_handler: SpecHandler::KeepStructural,
+                spec_handler: SpecHandler::KeepAllowlisted(&[
+                    "type",
+                    "selector",
+                    "ports",
+                    "clusterIP",
+                    "clusterIPs",
+                    "sessionAffinity",
+                    "sessionAffinityConfig",
+                    "externalName",
+                    "externalIPs",
+                    "loadBalancerIP",
+                    "ipFamilies",
+                    "ipFamilyPolicy",
+                    "allocateLoadBalancerNodePorts",
+                    "loadBalancerClass",
+                    "internalTrafficPolicy",
+                    "externalTrafficPolicy",
+                    "publishNotReadyAddresses",
+                    "healthCheckNodePort",
+                ]),
             };
         }
 
@@ -99,23 +134,59 @@ impl Allowlist {
         if *gvr == well_known::events() {
             return Self {
                 top_level_keys: &[
-                    "metadata", "reason", "message", "type", "count",
-                    "firstTimestamp", "lastTimestamp", "source", "involvedObject",
+                    "metadata",
+                    "reason",
+                    "message",
+                    "type",
+                    "count",
+                    "firstTimestamp",
+                    "lastTimestamp",
+                    "source",
+                    "involvedObject",
                 ],
                 spec_handler: SpecHandler::DropAll,
             };
         }
 
-        // PersistentVolumes: keep capacity, access modes, storage class — drop data paths
-        if [
-            well_known::persistent_volumes(),
-            well_known::persistent_volume_claims(),
-        ]
-        .contains(gvr)
-        {
+        // PersistentVolumes: capacity, access modes, storage class — no data paths
+        if *gvr == well_known::persistent_volumes() {
             return Self {
                 top_level_keys: &["metadata", "spec", "status"],
-                spec_handler: SpecHandler::KeepStructural,
+                spec_handler: SpecHandler::KeepAllowlisted(&[
+                    "capacity",
+                    "accessModes",
+                    "storageClassName",
+                    "persistentVolumeReclaimPolicy",
+                    "volumeMode",
+                    "nodeAffinity",
+                    // Volume type fields (structural only — no credentials)
+                    "hostPath",
+                    "nfs",
+                    "emptyDir",
+                    "csi",
+                    "local",
+                    "gcePersistentDisk",
+                    "awsElasticBlockStore",
+                    "azureDisk",
+                    "azureFile",
+                ]),
+            };
+        }
+
+        // PersistentVolumeClaims: request/binding metadata — no data
+        if *gvr == well_known::persistent_volume_claims() {
+            return Self {
+                top_level_keys: &["metadata", "spec", "status"],
+                spec_handler: SpecHandler::KeepAllowlisted(&[
+                    "accessModes",
+                    "storageClassName",
+                    "volumeMode",
+                    "resources",
+                    "volumeName",
+                    "selector",
+                    "dataSource",
+                    "dataSourceRef",
+                ]),
             };
         }
 
@@ -146,7 +217,12 @@ impl Allowlist {
         if *gvr == well_known::network_policies() {
             return Self {
                 top_level_keys: &["metadata", "spec"],
-                spec_handler: SpecHandler::KeepStructural,
+                spec_handler: SpecHandler::KeepAllowlisted(&[
+                    "podSelector",
+                    "ingress",
+                    "egress",
+                    "policyTypes",
+                ]),
             };
         }
 
@@ -154,7 +230,12 @@ impl Allowlist {
         if *gvr == well_known::ingresses() {
             return Self {
                 top_level_keys: &["metadata", "spec", "status"],
-                spec_handler: SpecHandler::KeepStructural,
+                spec_handler: SpecHandler::KeepAllowlisted(&[
+                    "rules",
+                    "tls",
+                    "ingressClassName",
+                    "defaultBackend",
+                ]),
             };
         }
 
@@ -206,8 +287,15 @@ impl FieldFilter {
                     strip_container_secrets(spec);
                 }
             }
-            SpecHandler::KeepStructural => {
-                // No additional stripping — redactor handles values later.
+            SpecHandler::KeepAllowlisted(allowed_keys) => {
+                if let Some(spec) = obj.get_mut("spec") {
+                    if let Some(spec_obj) = spec.as_object_mut() {
+                        // Default-deny: drop any spec key not in the allowlist.
+                        spec_obj.retain(|k, _| allowed_keys.contains(&k.as_str()));
+                    }
+                    // Defense in depth: strip container env values if injected.
+                    strip_container_env_defense(spec);
+                }
             }
         }
 
@@ -245,16 +333,93 @@ fn strip_metadata_noise(meta: &mut Value) {
                 }
             }
         }
+
+        // Strip ALL label values — keep only keys.
+        // Rationale: same as annotations — label values may carry operator-injected
+        // tokens or sensitive identifiers that regex patterns may not catch reliably.
+        if let Some(labels) = obj.get_mut("labels") {
+            if let Some(lbl_obj) = labels.as_object_mut() {
+                let keys: Vec<String> = lbl_obj.keys().cloned().collect();
+                let count = keys.len();
+                lbl_obj.clear();
+                for k in keys {
+                    lbl_obj.insert(k, Value::String("[REDACTED]".to_string()));
+                }
+                if count > 0 {
+                    tracing::debug!(
+                        label_count = count,
+                        "sanitizer: label values redacted (keys preserved)"
+                    );
+                }
+            }
+        }
     }
 }
+
+/// Known structural spec keys for workload resources (Pods, Deployments, etc.).
+///
+/// Only these keys are forwarded when `ContainerStructure` mode is active.
+/// Any key not in this list is dropped — default-deny for spec content.
+const KNOWN_SPEC_KEYS: &[&str] = &[
+    // Pod-level
+    "containers",
+    "initContainers",
+    "ephemeralContainers",
+    "volumes",
+    "serviceAccountName",
+    "restartPolicy",
+    "nodeName",
+    "nodeSelector",
+    "tolerations",
+    "affinity",
+    "dnsConfig",
+    "hostNetwork",
+    "hostPID",
+    "hostIPC",
+    "priority",
+    "priorityClassName",
+    "topologySpreadConstraints",
+    "runtimeClassName",
+    "schedulerName",
+    "preemptionPolicy",
+    "automountServiceAccountToken",
+    // Workload-level (Deployment / StatefulSet / DaemonSet / ReplicaSet)
+    "replicas",
+    "selector",
+    "template",
+    "strategy",
+    "updateStrategy",
+    "minReadySeconds",
+    "revisionHistoryLimit",
+    "paused",
+    // StatefulSet-specific
+    "serviceName",
+    "podManagementPolicy",
+    "volumeClaimTemplates",
+    "persistentVolumeClaimRetentionPolicy",
+    // Job / CronJob
+    "schedule",
+    "jobTemplate",
+    "completions",
+    "parallelism",
+    "backoffLimit",
+    "activeDeadlineSeconds",
+    "ttlSecondsAfterFinished",
+    "completionMode",
+    "suspend",
+];
 
 /// Strip secret material from container specs.
 ///
 /// Container env var *values* are dropped (names are kept).
 /// Volume mounts are kept (no secret material there).
 /// Image pull secrets are dropped entirely.
+/// Unknown spec fields are dropped (default-deny).
 fn strip_container_secrets(spec: &mut Value) {
     if let Some(obj) = spec.as_object_mut() {
+        // Default-deny: drop any spec key not in the known-structural allowlist.
+        obj.retain(|k, _| KNOWN_SPEC_KEYS.contains(&k.as_str()));
+
         // Image pull secrets contain registry credentials.
         obj.remove("imagePullSecrets");
 
@@ -268,11 +433,41 @@ fn strip_container_secrets(spec: &mut Value) {
         // Template spec (Deployment/StatefulSet nested pod template).
         if let Some(template) = obj.get_mut("template") {
             if let Some(tpl_obj) = template.as_object_mut() {
+                // Strip template metadata (annotations/labels) like top-level metadata.
+                if let Some(tpl_meta) = tpl_obj.get_mut("metadata") {
+                    strip_metadata_noise(tpl_meta);
+                }
                 if let Some(tpl_spec) = tpl_obj.get_mut("spec") {
                     strip_container_secrets(tpl_spec);
                 }
             }
         }
+    }
+}
+
+/// Defense-in-depth: walk a spec value and strip env var values from any
+/// `containers` or `initContainers` arrays found at any depth.
+///
+/// Used on `KeepAllowlisted` specs to catch adversarially injected container
+/// structures that wouldn't normally appear in infra resource specs.
+fn strip_container_env_defense(spec: &mut Value) {
+    match spec {
+        Value::Object(obj) => {
+            for key in &["containers", "initContainers", "ephemeralContainers"] {
+                if let Some(arr) = obj.get_mut(*key) {
+                    strip_container_array_secrets(arr);
+                }
+            }
+            for v in obj.values_mut() {
+                strip_container_env_defense(v);
+            }
+        }
+        Value::Array(arr) => {
+            for v in arr.iter_mut() {
+                strip_container_env_defense(v);
+            }
+        }
+        _ => {}
     }
 }
 
@@ -349,8 +544,14 @@ mod tests {
         let filter = FieldFilter::for_gvr(&well_known::pods());
         let result = filter.apply(raw).unwrap();
         let s = serde_json::to_string(&result).unwrap();
-        assert!(!s.contains("secret-value"), "env value must be stripped: {s}");
-        assert!(s.contains("API_KEY"), "env name should be kept for diagnostics: {s}");
+        assert!(
+            !s.contains("secret-value"),
+            "env value must be stripped: {s}"
+        );
+        assert!(
+            s.contains("API_KEY"),
+            "env name should be kept for diagnostics: {s}"
+        );
     }
 
     #[test]
@@ -365,7 +566,10 @@ mod tests {
         let filter = FieldFilter::for_gvr(&well_known::pods());
         let result = filter.apply(raw).unwrap();
         let s = serde_json::to_string(&result).unwrap();
-        assert!(s.contains("my-registry/app:v2.3"), "image must be preserved: {s}");
+        assert!(
+            s.contains("my-registry/app:v2.3"),
+            "image must be preserved: {s}"
+        );
     }
 
     #[test]
@@ -380,7 +584,10 @@ mod tests {
         let filter = FieldFilter::for_gvr(&well_known::pods());
         let result = filter.apply(raw).unwrap();
         let meta = result.get("metadata").unwrap();
-        assert!(meta.get("managedFields").is_none(), "managedFields must be stripped");
+        assert!(
+            meta.get("managedFields").is_none(),
+            "managedFields must be stripped"
+        );
     }
 
     #[test]
@@ -401,12 +608,27 @@ mod tests {
         let result = filter.apply(raw).unwrap();
         let s = serde_json::to_string(&result).unwrap();
         // Keys must be present for diagnostic context.
-        assert!(s.contains("app.kubernetes.io/version"), "annotation key must be kept");
-        assert!(s.contains("vault.hashicorp.com/token"), "annotation key must be kept");
+        assert!(
+            s.contains("app.kubernetes.io/version"),
+            "annotation key must be kept"
+        );
+        assert!(
+            s.contains("vault.hashicorp.com/token"),
+            "annotation key must be kept"
+        );
         // Values must all be redacted.
-        assert!(!s.contains("v1.2.3"), "annotation value must be redacted: {s}");
-        assert!(!s.contains("s.SuperSecret123"), "secret annotation value must be redacted: {s}");
-        assert!(s.contains("[REDACTED]"), "redaction marker must appear: {s}");
+        assert!(
+            !s.contains("v1.2.3"),
+            "annotation value must be redacted: {s}"
+        );
+        assert!(
+            !s.contains("s.SuperSecret123"),
+            "secret annotation value must be redacted: {s}"
+        );
+        assert!(
+            s.contains("[REDACTED]"),
+            "redaction marker must appear: {s}"
+        );
     }
 
     #[test]
@@ -423,7 +645,10 @@ mod tests {
         let result = filter.apply(raw).unwrap();
         assert!(result.get("reason").is_some(), "reason must be kept");
         assert!(result.get("message").is_some(), "message must be kept");
-        assert!(result.get("spec").is_none(), "spec must be dropped for events");
+        assert!(
+            result.get("spec").is_none(),
+            "spec must be dropped for events"
+        );
     }
 
     #[test]
@@ -435,8 +660,14 @@ mod tests {
         });
         let filter = FieldFilter::for_gvr(&well_known::service_accounts());
         let result = filter.apply(raw).unwrap();
-        assert!(result.get("secrets").is_none(), "secrets list must be stripped");
-        assert!(result.get("imagePullSecrets").is_none(), "imagePullSecrets must be stripped");
+        assert!(
+            result.get("secrets").is_none(),
+            "secrets list must be stripped"
+        );
+        assert!(
+            result.get("imagePullSecrets").is_none(),
+            "imagePullSecrets must be stripped"
+        );
     }
 
     #[test]
@@ -448,8 +679,14 @@ mod tests {
         });
         let filter = FieldFilter::for_gvr(&well_known::roles());
         let result = filter.apply(raw).unwrap();
-        assert!(result.get("rules").is_some(), "rules must be kept for RBAC analysis");
-        assert!(result.get("data").is_none(), "data must be dropped for roles");
+        assert!(
+            result.get("rules").is_some(),
+            "rules must be kept for RBAC analysis"
+        );
+        assert!(
+            result.get("data").is_none(),
+            "data must be dropped for roles"
+        );
     }
 
     #[test]
@@ -462,7 +699,13 @@ mod tests {
         let unknown = crate::client::Gvr::new("custom.io", "v1alpha1", "widgets");
         let filter = FieldFilter::for_gvr(&unknown);
         let result = filter.apply(raw).unwrap();
-        assert!(result.get("spec").is_none(), "spec must be dropped for unknown GVRs");
-        assert!(result.get("status").is_some(), "status must be kept for unknown GVRs");
+        assert!(
+            result.get("spec").is_none(),
+            "spec must be dropped for unknown GVRs"
+        );
+        assert!(
+            result.get("status").is_some(),
+            "status must be kept for unknown GVRs"
+        );
     }
 }

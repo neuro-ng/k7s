@@ -45,7 +45,13 @@ fn main() {
 
     let mut cmd = Cli::command();
 
-    for shell in [Shell::Bash, Shell::Fish, Shell::Zsh, Shell::Elvish, Shell::PowerShell] {
+    for shell in [
+        Shell::Bash,
+        Shell::Fish,
+        Shell::Zsh,
+        Shell::Elvish,
+        Shell::PowerShell,
+    ] {
         generate_to(shell, &mut cmd, "k7s", &completions_dir)
             .unwrap_or_else(|e| panic!("failed to generate {shell:?} completions: {e}"));
     }

@@ -12,7 +12,9 @@ use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use ratatui::layout::{Constraint, Direction, Layout, Rect};
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, Borders, Paragraph, Scrollbar, ScrollbarOrientation, ScrollbarState, Wrap};
+use ratatui::widgets::{
+    Block, Borders, Paragraph, Scrollbar, ScrollbarOrientation, ScrollbarState, Wrap,
+};
 use ratatui::Frame;
 
 use crate::ai::provider::Role;
@@ -20,7 +22,7 @@ use crate::ai::provider::Role;
 /// A displayable message in the chat window.
 #[derive(Debug, Clone)]
 pub struct ChatMessage {
-    pub role:    Role,
+    pub role: Role,
     pub content: String,
 }
 
@@ -40,23 +42,23 @@ pub struct ChatWidget {
     /// Conversation messages for display.
     pub messages: Vec<ChatMessage>,
     /// Current input buffer.
-    pub input:    String,
+    pub input: String,
     /// Vertical scroll offset for the message list.
-    scroll:       usize,
+    scroll: usize,
     /// Token usage (0–100 percent) for the progress bar.
     pub token_pct: u8,
     /// Whether the AI is currently generating a response.
-    pub loading:  bool,
+    pub loading: bool,
 }
 
 impl ChatWidget {
     pub fn new() -> Self {
         Self {
-            messages:  Vec::new(),
-            input:     String::new(),
-            scroll:    0,
+            messages: Vec::new(),
+            input: String::new(),
+            scroll: 0,
             token_pct: 0,
-            loading:   false,
+            loading: false,
         }
     }
 
@@ -83,7 +85,10 @@ impl ChatWidget {
                 if event.modifiers.contains(KeyModifiers::CONTROL) {
                     // Ctrl+Backspace: delete last word.
                     let trimmed = self.input.trim_end_matches(char::is_whitespace);
-                    let end = trimmed.rfind(char::is_whitespace).map(|i| i + 1).unwrap_or(0);
+                    let end = trimmed
+                        .rfind(char::is_whitespace)
+                        .map(|i| i + 1)
+                        .unwrap_or(0);
                     self.input.truncate(end);
                 } else {
                     self.input.pop();
@@ -97,10 +102,22 @@ impl ChatWidget {
             }
 
             // Scroll message list.
-            KeyCode::Up   | KeyCode::PageUp   => { self.scroll = self.scroll.saturating_sub(1); ChatAction::None }
-            KeyCode::Down | KeyCode::PageDown => { self.scroll += 1; ChatAction::None }
-            KeyCode::Home => { self.scroll = 0; ChatAction::None }
-            KeyCode::End  => { self.scroll_to_bottom(); ChatAction::None }
+            KeyCode::Up | KeyCode::PageUp => {
+                self.scroll = self.scroll.saturating_sub(1);
+                ChatAction::None
+            }
+            KeyCode::Down | KeyCode::PageDown => {
+                self.scroll += 1;
+                ChatAction::None
+            }
+            KeyCode::Home => {
+                self.scroll = 0;
+                ChatAction::None
+            }
+            KeyCode::End => {
+                self.scroll_to_bottom();
+                ChatAction::None
+            }
 
             _ => ChatAction::None,
         }
@@ -137,9 +154,14 @@ impl ChatWidget {
 
         for msg in &self.messages {
             let (prefix, style) = match msg.role {
-                Role::User      => ("You  › ", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
+                Role::User => (
+                    "You  › ",
+                    Style::default()
+                        .fg(Color::Cyan)
+                        .add_modifier(Modifier::BOLD),
+                ),
                 Role::Assistant => ("k7s  › ", Style::default().fg(Color::Green)),
-                Role::System    => ("sys  › ", Style::default().fg(Color::DarkGray)),
+                Role::System => ("sys  › ", Style::default().fg(Color::DarkGray)),
             };
 
             // First line gets the role prefix.
@@ -157,7 +179,12 @@ impl ChatWidget {
         if self.loading {
             lines.push(Line::from(vec![
                 Span::styled("k7s  › ", Style::default().fg(Color::Green)),
-                Span::styled("▋", Style::default().fg(Color::Green).add_modifier(Modifier::SLOW_BLINK)),
+                Span::styled(
+                    "▋",
+                    Style::default()
+                        .fg(Color::Green)
+                        .add_modifier(Modifier::SLOW_BLINK),
+                ),
             ]));
         }
 
@@ -199,29 +226,31 @@ impl ChatWidget {
             lines.push(Line::from(Span::styled(c, Style::default().fg(color))));
         }
 
-        let bar = Paragraph::new(lines)
-            .block(Block::default().borders(Borders::LEFT).title("T"));
+        let bar = Paragraph::new(lines).block(Block::default().borders(Borders::LEFT).title("T"));
         frame.render_widget(bar, area);
     }
 
     fn render_input(&self, frame: &mut Frame, area: Rect) {
         let cursor = if self.loading { "…" } else { "█" };
-        let prompt = Paragraph::new(format!(" › {}{}",
-            self.input,
-            cursor,
-        ))
-        .style(Style::default().fg(Color::White))
-        .block(
-            Block::default()
-                .borders(Borders::ALL)
-                .title(if self.loading { " Thinking… " } else { " Message (Enter to send, Esc to close) " }),
-        );
+        let prompt = Paragraph::new(format!(" › {}{}", self.input, cursor,))
+            .style(Style::default().fg(Color::White))
+            .block(
+                Block::default()
+                    .borders(Borders::ALL)
+                    .title(if self.loading {
+                        " Thinking… "
+                    } else {
+                        " Message (Enter to send, Esc to close) "
+                    }),
+            );
         frame.render_widget(prompt, area);
     }
 }
 
 impl Default for ChatWidget {
-    fn default() -> Self { Self::new() }
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 #[cfg(test)]
@@ -233,7 +262,7 @@ mod tests {
         KeyEvent {
             code,
             modifiers: KeyModifiers::NONE,
-            kind:  KeyEventKind::Press,
+            kind: KeyEventKind::Press,
             state: KeyEventState::NONE,
         }
     }

@@ -106,23 +106,18 @@ fn builtin_patterns() -> Result<Vec<Regex>, SanitizeError> {
         r"(?i)private[_-]?key\s*[:=]\s*\S+",
         r"(?i)auth[_-]?token\s*[:=]\s*\S+",
         r"(?i)bearer\s+[A-Za-z0-9\-._~+/]+=*",
-
         // Connection strings
         r"(?i)(mysql|postgres|postgresql|mongodb|redis|amqp|rabbitmq)://[^\s]+",
         r"(?i)jdbc:[a-z]+://[^\s]+",
-
         // AWS-style access keys (AKIA...)
         r"AKIA[0-9A-Z]{16}",
-
         // Generic high-entropy token shapes (base64, hex, JWT)
         // JWT: three base64url segments separated by dots
         r"ey[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+",
-
         // PEM certificate/key blocks
         r"-----BEGIN [A-Z ]+ (KEY|CERTIFICATE)-----",
-
         // Kubernetes service account token prefix
-        r"eyJhbGciOiJSUzI1NiIs",   // common SA token header
+        r"eyJhbGciOiJSUzI1NiIs", // common SA token header
     ];
 
     raw_patterns
@@ -171,7 +166,10 @@ mod tests {
         let input = json!({ "dsn": "postgres://user:pass@host:5432/db" });
         let output = r.redact(input).unwrap();
         let s = serde_json::to_string(&output).unwrap();
-        assert!(s.contains(REDACTED), "connection string must be redacted: {s}");
+        assert!(
+            s.contains(REDACTED),
+            "connection string must be redacted: {s}"
+        );
     }
 
     #[test]
@@ -200,7 +198,10 @@ mod tests {
         });
         let output = r.redact(input).unwrap();
         let s = serde_json::to_string(&output).unwrap();
-        assert!(!s.contains("secrettoken123"), "nested secret must be redacted: {s}");
+        assert!(
+            !s.contains("secrettoken123"),
+            "nested secret must be redacted: {s}"
+        );
     }
 
     #[test]

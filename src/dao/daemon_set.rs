@@ -5,8 +5,8 @@ use kube::api::{Patch, PatchParams};
 use kube::{Api, Client};
 use serde_json::json;
 
-use crate::client::Gvr;
 use crate::client::gvr::well_known;
+use crate::client::Gvr;
 use crate::dao::generic::GenericDao;
 use crate::dao::traits::{Accessor, DeleteOptions, Describer, Nuker, Resource, Restartable};
 
@@ -38,25 +38,45 @@ impl Accessor for DaemonSetDao {
         self.inner.gvr()
     }
 
-    async fn list(&self, client: &Client, namespace: Option<&str>) -> anyhow::Result<Vec<Resource>> {
+    async fn list(
+        &self,
+        client: &Client,
+        namespace: Option<&str>,
+    ) -> anyhow::Result<Vec<Resource>> {
         self.inner.list(client, namespace).await
     }
 
-    async fn get(&self, client: &Client, namespace: Option<&str>, name: &str) -> anyhow::Result<Resource> {
+    async fn get(
+        &self,
+        client: &Client,
+        namespace: Option<&str>,
+        name: &str,
+    ) -> anyhow::Result<Resource> {
         self.inner.get(client, namespace, name).await
     }
 }
 
 #[async_trait]
 impl Nuker for DaemonSetDao {
-    async fn delete(&self, client: &Client, namespace: Option<&str>, name: &str, opts: DeleteOptions) -> anyhow::Result<()> {
+    async fn delete(
+        &self,
+        client: &Client,
+        namespace: Option<&str>,
+        name: &str,
+        opts: DeleteOptions,
+    ) -> anyhow::Result<()> {
         self.inner.delete(client, namespace, name, opts).await
     }
 }
 
 #[async_trait]
 impl Describer for DaemonSetDao {
-    async fn describe(&self, client: &Client, namespace: Option<&str>, name: &str) -> anyhow::Result<String> {
+    async fn describe(
+        &self,
+        client: &Client,
+        namespace: Option<&str>,
+        name: &str,
+    ) -> anyhow::Result<String> {
         let ns = namespace.unwrap_or("default");
         let api = self.api(client, ns);
         let ds: DaemonSet = api.get(name).await?;
@@ -75,17 +95,34 @@ impl Describer for DaemonSetDao {
         }
 
         if let Some(status) = &ds.status {
-            lines.push(format!("Desired:         {}", status.desired_number_scheduled));
-            lines.push(format!("Current:         {}", status.current_number_scheduled));
+            lines.push(format!(
+                "Desired:         {}",
+                status.desired_number_scheduled
+            ));
+            lines.push(format!(
+                "Current:         {}",
+                status.current_number_scheduled
+            ));
             lines.push(format!("Ready:           {}", status.number_ready));
-            lines.push(format!("Up-to-date:      {}", status.updated_number_scheduled.unwrap_or(0)));
-            lines.push(format!("Available:       {}", status.number_available.unwrap_or(0)));
+            lines.push(format!(
+                "Up-to-date:      {}",
+                status.updated_number_scheduled.unwrap_or(0)
+            ));
+            lines.push(format!(
+                "Available:       {}",
+                status.number_available.unwrap_or(0)
+            ));
         }
 
         Ok(lines.join("\n"))
     }
 
-    async fn to_yaml(&self, client: &Client, namespace: Option<&str>, name: &str) -> anyhow::Result<String> {
+    async fn to_yaml(
+        &self,
+        client: &Client,
+        namespace: Option<&str>,
+        name: &str,
+    ) -> anyhow::Result<String> {
         self.inner.to_yaml(client, namespace, name).await
     }
 }
@@ -106,7 +143,8 @@ impl Restartable for DaemonSetDao {
                 }
             }
         });
-        api.patch(name, &PatchParams::apply("k7s"), &Patch::Merge(&patch)).await?;
+        api.patch(name, &PatchParams::apply("k7s"), &Patch::Merge(&patch))
+            .await?;
         tracing::info!(daemonset = name, namespace, "daemonset restart triggered");
         Ok(())
     }

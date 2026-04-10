@@ -30,7 +30,12 @@ impl LogLevel {
     /// Detect a level from the raw line content.
     pub fn detect(line: &str) -> Self {
         let l = line.to_ascii_lowercase();
-        if l.contains("error") || l.contains("err ")  || l.contains(" err:") || l.contains("fatal") || l.contains("panic") {
+        if l.contains("error")
+            || l.contains("err ")
+            || l.contains(" err:")
+            || l.contains("fatal")
+            || l.contains("panic")
+        {
             return Self::Error;
         }
         if l.contains("warn") {
@@ -157,12 +162,12 @@ impl LogModel {
 
     pub fn with_capacity(cap: usize) -> Self {
         Self {
-            lines:           VecDeque::with_capacity(cap.min(DEFAULT_BUFFER_CAP)),
-            capacity:        cap,
-            filter:          None,
+            lines: VecDeque::with_capacity(cap.min(DEFAULT_BUFFER_CAP)),
+            capacity: cap,
+            filter: None,
             show_timestamps: false,
-            streaming:       false,
-            containers:      Vec::new(),
+            streaming: false,
+            containers: Vec::new(),
         }
     }
 
@@ -177,8 +182,12 @@ impl LogModel {
     }
 
     /// Total number of buffered lines (unfiltered).
-    pub fn len(&self) -> usize { self.lines.len() }
-    pub fn is_empty(&self) -> bool { self.lines.is_empty() }
+    pub fn len(&self) -> usize {
+        self.lines.len()
+    }
+    pub fn is_empty(&self) -> bool {
+        self.lines.is_empty()
+    }
 
     /// Set a regex filter. Pass `None` to clear.
     ///
@@ -198,11 +207,9 @@ impl LogModel {
 
     /// Iterate over lines matching the current filter (or all lines if no filter).
     pub fn filtered_lines(&self) -> impl Iterator<Item = &LogItem> {
-        self.lines.iter().filter(|item| {
-            match &self.filter {
-                None => true,
-                Some(re) => re.is_match(&item.raw),
-            }
+        self.lines.iter().filter(|item| match &self.filter {
+            None => true,
+            Some(re) => re.is_match(&item.raw),
         })
     }
 
@@ -212,7 +219,9 @@ impl LogModel {
     }
 
     /// Whether a filter is currently active.
-    pub fn is_filtered(&self) -> bool { self.filter.is_some() }
+    pub fn is_filtered(&self) -> bool {
+        self.filter.is_some()
+    }
 
     /// Highlight regions within a line that match the filter regex.
     ///
@@ -231,7 +240,9 @@ impl LogModel {
 }
 
 impl Default for LogModel {
-    fn default() -> Self { Self::new() }
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 // ─── Multi-container merging ───────────────────────────────────────────────────
@@ -245,15 +256,13 @@ impl Default for LogModel {
 /// In practice, `LogModel::push` with a `container` name is sufficient for
 /// the streaming use-case. This function is provided for the case where all
 /// lines are available at once (e.g. fetching historical logs for all containers).
-pub fn merge_container_logs(
-    container_lines: Vec<(String, Vec<String>)>,
-) -> Vec<LogItem> {
+pub fn merge_container_logs(container_lines: Vec<(String, Vec<String>)>) -> Vec<LogItem> {
     let mut all: Vec<LogItem> = container_lines
         .into_iter()
         .flat_map(|(container, lines)| {
-            lines.into_iter().map(move |raw| {
-                LogItem::parse(raw, Some(container.clone()))
-            })
+            lines
+                .into_iter()
+                .map(move |raw| LogItem::parse(raw, Some(container.clone())))
         })
         .collect();
 
@@ -286,7 +295,11 @@ mod tests {
         m.push("c", None);
         m.push("d", None); // evicts "a"
         assert_eq!(m.len(), 3);
-        let msgs: Vec<_> = m.visible_lines().iter().map(|l| l.message.as_str()).collect();
+        let msgs: Vec<_> = m
+            .visible_lines()
+            .iter()
+            .map(|l| l.message.as_str())
+            .collect();
         assert!(!msgs.contains(&"a"));
         assert!(msgs.contains(&"d"));
     }
@@ -364,8 +377,14 @@ mod tests {
     #[test]
     fn merge_container_logs_with_timestamps() {
         let lines = vec![
-            ("web".to_owned(),  vec!["2024-01-01T00:00:02Z msg-b".to_owned()]),
-            ("db".to_owned(),   vec!["2024-01-01T00:00:01Z msg-a".to_owned()]),
+            (
+                "web".to_owned(),
+                vec!["2024-01-01T00:00:02Z msg-b".to_owned()],
+            ),
+            (
+                "db".to_owned(),
+                vec!["2024-01-01T00:00:01Z msg-a".to_owned()],
+            ),
         ];
         let merged = merge_container_logs(lines);
         assert_eq!(merged.len(), 2);

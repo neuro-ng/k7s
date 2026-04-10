@@ -13,23 +13,23 @@
 //! All async operations take a `kube::Client` reference — DAOs themselves
 //! are stateless and cheap to construct.
 
-pub mod traits;
-pub mod registry;
-pub mod generic;
-pub mod pod;
-pub mod deployment;
-pub mod stateful_set;
-pub mod daemon_set;
-pub mod replica_set;
-pub mod job;
 pub mod cron_job;
+pub mod daemon_set;
+pub mod deployment;
+pub mod generic;
 pub mod helm;
+pub mod job;
+pub mod pod;
+pub mod registry;
+pub mod replica_set;
+pub mod stateful_set;
+pub mod traits;
 
-pub use traits::{Accessor, Describer, Loggable, Nuker, Restartable, Scalable};
-pub use registry::Registry;
-pub use stateful_set::StatefulSetDao;
-pub use daemon_set::DaemonSetDao;
-pub use replica_set::ReplicaSetDao;
-pub use job::JobDao;
 pub use cron_job::CronJobDao;
+pub use daemon_set::DaemonSetDao;
 pub use helm::{HelmDao, HelmError, HelmHistoryEntry, HelmRelease};
+pub use job::JobDao;
+pub use registry::Registry;
+pub use replica_set::ReplicaSetDao;
+pub use stateful_set::StatefulSetDao;
+pub use traits::{Accessor, Describer, Loggable, Nuker, Restartable, Scalable};

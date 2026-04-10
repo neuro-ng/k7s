@@ -1,8 +1,8 @@
 use ratatui::layout::Constraint;
 use serde_json::Value;
 
-use crate::client::Gvr;
 use crate::client::gvr::well_known;
+use crate::client::Gvr;
 use crate::render::{age_from_obj, meta_name, ColumnDef, RenderedRow, Renderer};
 
 pub struct CronJobRenderer {
@@ -15,30 +15,44 @@ impl CronJobRenderer {
         Self {
             gvr: well_known::cron_jobs(),
             columns: vec![
-                ColumnDef::new("NAME",         Constraint::Min(20)),
-                ColumnDef::new("SCHEDULE",     Constraint::Length(16)),
-                ColumnDef::new("SUSPEND",      Constraint::Length(8)),
-                ColumnDef::new("ACTIVE",       Constraint::Length(7)),
-                ColumnDef::new("LAST SCHEDULE",Constraint::Length(14)),
-                ColumnDef::new("AGE",          Constraint::Length(6)),
+                ColumnDef::new("NAME", Constraint::Min(20)),
+                ColumnDef::new("SCHEDULE", Constraint::Length(16)),
+                ColumnDef::new("SUSPEND", Constraint::Length(8)),
+                ColumnDef::new("ACTIVE", Constraint::Length(7)),
+                ColumnDef::new("LAST SCHEDULE", Constraint::Length(14)),
+                ColumnDef::new("AGE", Constraint::Length(6)),
             ],
         }
     }
 }
 
 impl Default for CronJobRenderer {
-    fn default() -> Self { Self::new() }
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl Renderer for CronJobRenderer {
-    fn gvr(&self) -> &Gvr { &self.gvr }
-    fn columns(&self) -> &[ColumnDef] { &self.columns }
+    fn gvr(&self) -> &Gvr {
+        &self.gvr
+    }
+    fn columns(&self) -> &[ColumnDef] {
+        &self.columns
+    }
 
     fn render(&self, obj: &Value) -> RenderedRow {
-        let name     = meta_name(obj).to_owned();
-        let schedule = obj.pointer("/spec/schedule").and_then(|v| v.as_str()).unwrap_or("-").to_owned();
-        let suspend  = obj.pointer("/spec/suspend").and_then(|v| v.as_bool()).unwrap_or(false);
-        let active   = obj.pointer("/status/active")
+        let name = meta_name(obj).to_owned();
+        let schedule = obj
+            .pointer("/spec/schedule")
+            .and_then(|v| v.as_str())
+            .unwrap_or("-")
+            .to_owned();
+        let suspend = obj
+            .pointer("/spec/suspend")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false);
+        let active = obj
+            .pointer("/status/active")
             .and_then(|v| v.as_array())
             .map_or(0, |a| a.len());
         let last_schedule = last_schedule_age(obj);

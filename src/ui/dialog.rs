@@ -48,9 +48,9 @@ pub enum ScaleAction {
 /// dlg.render(frame, frame.area());
 /// ```
 pub struct ScaleDialog {
-    title:    String,
-    input:    String,
-    error:    Option<String>,
+    title: String,
+    input: String,
+    error: Option<String>,
 }
 
 impl ScaleDialog {
@@ -66,15 +66,13 @@ impl ScaleDialog {
     /// Handle a key event.
     pub fn handle_key(&mut self, key: KeyCode) -> ScaleAction {
         match key {
-            KeyCode::Enter => {
-                match self.input.trim().parse::<u32>() {
-                    Ok(n)  => ScaleAction::Confirm(n),
-                    Err(_) => {
-                        self.error = Some("Enter a valid non-negative integer".into());
-                        ScaleAction::None
-                    }
+            KeyCode::Enter => match self.input.trim().parse::<u32>() {
+                Ok(n) => ScaleAction::Confirm(n),
+                Err(_) => {
+                    self.error = Some("Enter a valid non-negative integer".into());
+                    ScaleAction::None
                 }
-            }
+            },
             KeyCode::Esc | KeyCode::Char('q') => ScaleAction::Cancel,
             KeyCode::Char(c) if c.is_ascii_digit() => {
                 self.input.push(c);
@@ -95,12 +93,10 @@ impl ScaleDialog {
         let popup = centred_rect(40, 7, area);
         frame.render_widget(Clear, popup);
 
-        let block = Block::default()
-            .borders(Borders::ALL)
-            .title(Span::styled(
-                format!(" {} ", self.title),
-                Style::default().add_modifier(Modifier::BOLD),
-            ));
+        let block = Block::default().borders(Borders::ALL).title(Span::styled(
+            format!(" {} ", self.title),
+            Style::default().add_modifier(Modifier::BOLD),
+        ));
 
         let inner = block.inner(popup);
         frame.render_widget(block, popup);
@@ -109,16 +105,19 @@ impl ScaleDialog {
             Span::raw("Replicas: "),
             Span::styled(
                 format!("{}_", self.input),
-                Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD),
+                Style::default()
+                    .fg(Color::Yellow)
+                    .add_modifier(Modifier::BOLD),
             ),
         ]);
         let hint = Line::from(Span::styled(
             "  Enter=confirm   Esc=cancel",
             Style::default().fg(Color::DarkGray),
         ));
-        let error_line = self.error.as_deref().map(|e| {
-            Line::from(Span::styled(e, Style::default().fg(Color::Red)))
-        });
+        let error_line = self
+            .error
+            .as_deref()
+            .map(|e| Line::from(Span::styled(e, Style::default().fg(Color::Red))));
 
         let mut lines = vec![Line::raw(""), label, Line::raw(""), hint];
         if let Some(el) = error_line {
@@ -150,10 +149,10 @@ pub struct DrainOptions {
 impl Default for DrainOptions {
     fn default() -> Self {
         Self {
-            ignore_daemonsets:    true,
+            ignore_daemonsets: true,
             delete_emptydir_data: false,
-            force:                false,
-            grace_period:         None,
+            force: false,
+            grace_period: None,
         }
     }
 }
@@ -172,10 +171,10 @@ pub enum DrainAction {
 /// Confirmed drain request.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DrainConfirm {
-    pub ignore_daemonsets:    bool,
+    pub ignore_daemonsets: bool,
     pub delete_emptydir_data: bool,
-    pub force:                bool,
-    pub grace_period:         Option<u32>,
+    pub force: bool,
+    pub grace_period: Option<u32>,
 }
 
 /// Index of the focused checkbox row.
@@ -188,22 +187,22 @@ enum DrainFocus {
 
 /// Modal dialog for configuring `kubectl drain` options.
 pub struct DrainDialog {
-    title:   String,
-    opts:    DrainOptions,
+    title: String,
+    opts: DrainOptions,
     focused: DrainFocus,
     /// When `Some`, we're collecting a grace-period integer.
     grace_input: Option<String>,
-    error:   Option<String>,
+    error: Option<String>,
 }
 
 impl DrainDialog {
     pub fn new(node_name: &str) -> Self {
         Self {
-            title:       format!("Drain · {node_name}"),
-            opts:        DrainOptions::default(),
-            focused:     DrainFocus::IgnoreDaemonsets,
+            title: format!("Drain · {node_name}"),
+            opts: DrainOptions::default(),
+            focused: DrainFocus::IgnoreDaemonsets,
             grace_input: None,
-            error:       None,
+            error: None,
         }
     }
 
@@ -243,10 +242,10 @@ impl DrainDialog {
 
         match key {
             KeyCode::Enter => DrainAction::Confirm(DrainConfirm {
-                ignore_daemonsets:    self.opts.ignore_daemonsets,
+                ignore_daemonsets: self.opts.ignore_daemonsets,
                 delete_emptydir_data: self.opts.delete_emptydir_data,
-                force:                self.opts.force,
-                grace_period:         self.opts.grace_period,
+                force: self.opts.force,
+                grace_period: self.opts.grace_period,
             }),
             KeyCode::Esc | KeyCode::Char('q') => DrainAction::Cancel,
             KeyCode::Char(' ') => {
@@ -255,24 +254,25 @@ impl DrainDialog {
             }
             KeyCode::Up | KeyCode::Char('k') => {
                 self.focused = match self.focused {
-                    DrainFocus::IgnoreDaemonsets    => DrainFocus::Force,
-                    DrainFocus::DeleteEmptydirData  => DrainFocus::IgnoreDaemonsets,
-                    DrainFocus::Force               => DrainFocus::DeleteEmptydirData,
+                    DrainFocus::IgnoreDaemonsets => DrainFocus::Force,
+                    DrainFocus::DeleteEmptydirData => DrainFocus::IgnoreDaemonsets,
+                    DrainFocus::Force => DrainFocus::DeleteEmptydirData,
                 };
                 DrainAction::None
             }
             KeyCode::Down | KeyCode::Char('j') => {
                 self.focused = match self.focused {
-                    DrainFocus::IgnoreDaemonsets    => DrainFocus::DeleteEmptydirData,
-                    DrainFocus::DeleteEmptydirData  => DrainFocus::Force,
-                    DrainFocus::Force               => DrainFocus::IgnoreDaemonsets,
+                    DrainFocus::IgnoreDaemonsets => DrainFocus::DeleteEmptydirData,
+                    DrainFocus::DeleteEmptydirData => DrainFocus::Force,
+                    DrainFocus::Force => DrainFocus::IgnoreDaemonsets,
                 };
                 DrainAction::None
             }
             KeyCode::Char('g') => {
                 // 'g' opens the grace-period input field.
                 self.grace_input = Some(
-                    self.opts.grace_period
+                    self.opts
+                        .grace_period
                         .map(|n| n.to_string())
                         .unwrap_or_default(),
                 );
@@ -286,39 +286,49 @@ impl DrainDialog {
         let popup = centred_rect(50, 12, area);
         frame.render_widget(Clear, popup);
 
-        let block = Block::default()
-            .borders(Borders::ALL)
-            .title(Span::styled(
-                format!(" {} ", self.title),
-                Style::default().add_modifier(Modifier::BOLD),
-            ));
+        let block = Block::default().borders(Borders::ALL).title(Span::styled(
+            format!(" {} ", self.title),
+            Style::default().add_modifier(Modifier::BOLD),
+        ));
         let inner = block.inner(popup);
         frame.render_widget(block, popup);
 
-        let focused_style = Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD);
-        let normal_style  = Style::default();
+        let focused_style = Style::default()
+            .fg(Color::Yellow)
+            .add_modifier(Modifier::BOLD);
+        let normal_style = Style::default();
 
         let checkbox = |checked: bool| if checked { "[x]" } else { "[ ]" };
         let row_style = |focus: DrainFocus| {
-            if self.focused == focus { focused_style } else { normal_style }
+            if self.focused == focus {
+                focused_style
+            } else {
+                normal_style
+            }
         };
 
         let grace_text = match &self.grace_input {
             Some(s) => format!("Grace period (s): {s}_"),
-            None    => match self.opts.grace_period {
+            None => match self.opts.grace_period {
                 Some(n) => format!("Grace period (s): {n}  [g]=edit"),
-                None    => "Grace period (s): default  [g]=set".into(),
+                None => "Grace period (s): default  [g]=set".into(),
             },
         };
 
         let mut lines = vec![
             Line::raw(""),
             Line::from(Span::styled(
-                format!("  {} --ignore-daemonsets", checkbox(self.opts.ignore_daemonsets)),
+                format!(
+                    "  {} --ignore-daemonsets",
+                    checkbox(self.opts.ignore_daemonsets)
+                ),
                 row_style(DrainFocus::IgnoreDaemonsets),
             )),
             Line::from(Span::styled(
-                format!("  {} --delete-emptydir-data", checkbox(self.opts.delete_emptydir_data)),
+                format!(
+                    "  {} --delete-emptydir-data",
+                    checkbox(self.opts.delete_emptydir_data)
+                ),
                 row_style(DrainFocus::DeleteEmptydirData),
             )),
             Line::from(Span::styled(
@@ -338,20 +348,24 @@ impl DrainDialog {
         ];
 
         if let Some(e) = &self.error {
-            lines.push(Line::from(Span::styled(e.as_str(), Style::default().fg(Color::Red))));
+            lines.push(Line::from(Span::styled(
+                e.as_str(),
+                Style::default().fg(Color::Red),
+            )));
         }
 
-        frame.render_widget(
-            Paragraph::new(lines).wrap(Wrap { trim: false }),
-            inner,
-        );
+        frame.render_widget(Paragraph::new(lines).wrap(Wrap { trim: false }), inner);
     }
 
     fn toggle_focused(&mut self) {
         match self.focused {
-            DrainFocus::IgnoreDaemonsets    => self.opts.ignore_daemonsets    = !self.opts.ignore_daemonsets,
-            DrainFocus::DeleteEmptydirData  => self.opts.delete_emptydir_data = !self.opts.delete_emptydir_data,
-            DrainFocus::Force               => self.opts.force                = !self.opts.force,
+            DrainFocus::IgnoreDaemonsets => {
+                self.opts.ignore_daemonsets = !self.opts.ignore_daemonsets
+            }
+            DrainFocus::DeleteEmptydirData => {
+                self.opts.delete_emptydir_data = !self.opts.delete_emptydir_data
+            }
+            DrainFocus::Force => self.opts.force = !self.opts.force,
         }
     }
 }
@@ -374,14 +388,14 @@ pub enum ConfirmAction {
 /// # Example message
 /// `"Delete pod/nginx-abc123 from namespace default?"`
 pub struct ConfirmDialog {
-    title:   String,
+    title: String,
     message: String,
 }
 
 impl ConfirmDialog {
     pub fn new(title: impl Into<String>, message: impl Into<String>) -> Self {
         Self {
-            title:   title.into(),
+            title: title.into(),
             message: message.into(),
         }
     }
@@ -389,7 +403,7 @@ impl ConfirmDialog {
     pub fn handle_key(&self, key: KeyCode) -> ConfirmAction {
         match key {
             KeyCode::Char('y') | KeyCode::Enter => ConfirmAction::Yes,
-            KeyCode::Char('n') | KeyCode::Esc   => ConfirmAction::No,
+            KeyCode::Char('n') | KeyCode::Esc => ConfirmAction::No,
             _ => ConfirmAction::None,
         }
     }
@@ -398,12 +412,10 @@ impl ConfirmDialog {
         let popup = centred_rect(50, 7, area);
         frame.render_widget(Clear, popup);
 
-        let block = Block::default()
-            .borders(Borders::ALL)
-            .title(Span::styled(
-                format!(" {} ", self.title),
-                Style::default().fg(Color::Red).add_modifier(Modifier::BOLD),
-            ));
+        let block = Block::default().borders(Borders::ALL).title(Span::styled(
+            format!(" {} ", self.title),
+            Style::default().fg(Color::Red).add_modifier(Modifier::BOLD),
+        ));
         let inner = block.inner(popup);
         frame.render_widget(block, popup);
 
@@ -434,7 +446,9 @@ fn centred_rect(percent_x: u16, height: u16, area: Rect) -> Rect {
     let vert = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
-            Constraint::Percentage((100u16.saturating_sub(height.min(100) * 100 / area.height.max(1))) / 2),
+            Constraint::Percentage(
+                (100u16.saturating_sub(height.min(100) * 100 / area.height.max(1))) / 2,
+            ),
             Constraint::Length(height),
             Constraint::Min(0),
         ])
@@ -486,8 +500,8 @@ mod tests {
         let mut dlg = ScaleDialog::new("x", 1);
         dlg.input.clear();
         dlg.input.push('a'); // force a non-digit via direct field access
-        // handle_key Enter should set error since 'a' can't come from handle_key
-        // Let's clear and test the empty case.
+                             // handle_key Enter should set error since 'a' can't come from handle_key
+                             // Let's clear and test the empty case.
         dlg.input.clear();
         assert_eq!(dlg.handle_key(KeyCode::Enter), ScaleAction::None);
         assert!(dlg.error.is_some());
@@ -526,10 +540,10 @@ mod tests {
         assert_eq!(
             action,
             DrainAction::Confirm(DrainConfirm {
-                ignore_daemonsets:    true,
+                ignore_daemonsets: true,
                 delete_emptydir_data: false,
-                force:                false,
-                grace_period:         None,
+                force: false,
+                grace_period: None,
             })
         );
     }
@@ -546,13 +560,13 @@ mod tests {
     fn confirm_yes_on_y() {
         let dlg = ConfirmDialog::new("Delete", "Delete pod?");
         assert_eq!(dlg.handle_key(KeyCode::Char('y')), ConfirmAction::Yes);
-        assert_eq!(dlg.handle_key(KeyCode::Enter),     ConfirmAction::Yes);
+        assert_eq!(dlg.handle_key(KeyCode::Enter), ConfirmAction::Yes);
     }
 
     #[test]
     fn confirm_no_on_esc() {
         let dlg = ConfirmDialog::new("Delete", "Delete pod?");
-        assert_eq!(dlg.handle_key(KeyCode::Esc),        ConfirmAction::No);
-        assert_eq!(dlg.handle_key(KeyCode::Char('n')),  ConfirmAction::No);
+        assert_eq!(dlg.handle_key(KeyCode::Esc), ConfirmAction::No);
+        assert_eq!(dlg.handle_key(KeyCode::Char('n')), ConfirmAction::No);
     }
 }

@@ -4,8 +4,8 @@
 //! module defines what actions are available per GVR and is used by the
 //! view registrar to populate the hints bar and key binding map.
 
-use crate::client::Gvr;
 use crate::client::gvr::well_known;
+use crate::client::Gvr;
 
 /// A single action that can be performed on a selected resource.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -52,8 +52,8 @@ impl ResourceAction {
 // ─── Common action sets ────────────────────────────────────────────────────────
 
 const DESCRIBE: ResourceAction = ResourceAction::new("d", "Describe", ActionId::Describe);
-const YAML:     ResourceAction = ResourceAction::new("y", "YAML",     ActionId::Yaml);
-const DELETE:   ResourceAction = ResourceAction::new("Ctrl-d", "Delete",   ActionId::Delete);
+const YAML: ResourceAction = ResourceAction::new("y", "YAML", ActionId::Yaml);
+const DELETE: ResourceAction = ResourceAction::new("Ctrl-d", "Delete", ActionId::Delete);
 
 // ─── Per-resource action tables ───────────────────────────────────────────────
 
@@ -61,21 +61,21 @@ const DELETE:   ResourceAction = ResourceAction::new("Ctrl-d", "Delete",   Actio
 pub fn actions_for(gvr: &Gvr) -> Vec<ResourceAction> {
     match gvr {
         g if *g == well_known::pods() => vec![
-            ResourceAction::new("l", "Logs",    ActionId::Logs),
-            ResourceAction::new("s", "Shell",   ActionId::Shell),
+            ResourceAction::new("l", "Logs", ActionId::Logs),
+            ResourceAction::new("s", "Shell", ActionId::Shell),
             DESCRIBE,
             YAML,
             DELETE,
         ],
         g if *g == well_known::deployments() => vec![
-            ResourceAction::new("s", "Scale",   ActionId::Scale),
+            ResourceAction::new("s", "Scale", ActionId::Scale),
             ResourceAction::new("r", "Restart", ActionId::Restart),
             DESCRIBE,
             YAML,
             DELETE,
         ],
         g if *g == well_known::stateful_sets() => vec![
-            ResourceAction::new("s", "Scale",   ActionId::Scale),
+            ResourceAction::new("s", "Scale", ActionId::Scale),
             ResourceAction::new("r", "Restart", ActionId::Restart),
             DESCRIBE,
             YAML,
@@ -88,7 +88,7 @@ pub fn actions_for(gvr: &Gvr) -> Vec<ResourceAction> {
             DELETE,
         ],
         g if *g == well_known::replica_sets() => vec![
-            ResourceAction::new("s", "Scale",   ActionId::Scale),
+            ResourceAction::new("s", "Scale", ActionId::Scale),
             DESCRIBE,
             YAML,
             DELETE,
@@ -100,7 +100,7 @@ pub fn actions_for(gvr: &Gvr) -> Vec<ResourceAction> {
             DELETE,
         ],
         g if *g == well_known::nodes() => vec![
-            ResourceAction::new("c", "Cordon",   ActionId::Cordon),
+            ResourceAction::new("c", "Cordon", ActionId::Cordon),
             ResourceAction::new("u", "Uncordon", ActionId::Uncordon),
             DESCRIBE,
             YAML,

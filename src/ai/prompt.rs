@@ -37,12 +37,12 @@ impl PromptKind {
     /// Human-readable label shown in the chat UI.
     pub fn label(&self) -> &'static str {
         match self {
-            PromptKind::ErrorAnalysis             => "Error Analysis",
+            PromptKind::ErrorAnalysis => "Error Analysis",
             PromptKind::EfficiencyRecommendations => "Efficiency Recommendations",
-            PromptKind::ClusterHealth             => "Cluster Health",
-            PromptKind::RbacReview                => "RBAC Review",
-            PromptKind::LogTroubleshooting        => "Log Troubleshooting",
-            PromptKind::General                   => "General",
+            PromptKind::ClusterHealth => "Cluster Health",
+            PromptKind::RbacReview => "RBAC Review",
+            PromptKind::LogTroubleshooting => "Log Troubleshooting",
+            PromptKind::General => "General",
         }
     }
 }
@@ -63,7 +63,9 @@ pub fn build(kind: &PromptKind, context: &[SafeMetadata], extra: Option<&str>) -
         PromptKind::RbacReview => rbac_review_task(),
         PromptKind::LogTroubleshooting => log_troubleshooting_task(),
         PromptKind::General => {
-            return extra.unwrap_or("Tell me about the cluster state shown in context.").to_owned();
+            return extra
+                .unwrap_or("Tell me about the cluster state shown in context.")
+                .to_owned();
         }
     };
 
@@ -147,10 +149,9 @@ fn format_context(context: &[SafeMetadata]) -> String {
     for meta in context {
         let ns_name = match &meta.namespace {
             Some(ns) => format!("{ns}/{}", meta.name),
-            None     => meta.name.clone(),
+            None => meta.name.clone(),
         };
-        let json = serde_json::to_string_pretty(&meta.fields)
-            .unwrap_or_else(|_| "{}".to_owned());
+        let json = serde_json::to_string_pretty(&meta.fields).unwrap_or_else(|_| "{}".to_owned());
         out.push_str(&format!(
             "### {} `{ns_name}`\n```json\n{json}\n```\n\n",
             meta.gvr,
@@ -168,10 +169,10 @@ mod tests {
 
     fn meta(name: &str) -> SafeMetadata {
         SafeMetadata {
-            gvr:       "v1/pods".to_owned(),
+            gvr: "v1/pods".to_owned(),
             namespace: Some("default".to_owned()),
-            name:      name.to_owned(),
-            fields:    json!({"status": {"phase": "CrashLoopBackOff"}}),
+            name: name.to_owned(),
+            fields: json!({"status": {"phase": "CrashLoopBackOff"}}),
         }
     }
 
