@@ -32,6 +32,8 @@ use crate::model::log::{LogItem, LogLevel, LogModel};
 pub enum LogAction {
     /// User pressed `q` / Esc (outside filter mode) — close the log view.
     Close,
+    /// User cycled to a different container — re-stream logs for this container.
+    SwitchContainer(String),
     /// No action needed.
     None,
 }
@@ -47,8 +49,12 @@ enum InputMode {
 
 /// Fullscreen log view widget.
 pub struct LogView {
-    /// Display title (e.g. `"my-pod / app"`).
-    pub title: String,
+    /// Pod name (without container suffix).
+    pub pod_name: String,
+    /// All available container names for this pod.
+    pub containers: Vec<String>,
+    /// Index into `containers` for the currently selected container.
+    pub container_idx: usize,
     /// The log data model.
     pub model: LogModel,
     /// Current scroll offset into the visible (filtered) lines.
@@ -59,17 +65,39 @@ pub struct LogView {
     filter_input: String,
     /// Last filter error (shown to the user briefly).
     filter_error: Option<String>,
+    /// Whether the container selector overlay is visible.
+    selector_visible: bool,
 }
 
 impl LogView {
-    pub fn new(title: impl Into<String>) -> Self {
+    /// Create a log view for a pod.
+    ///
+    /// `containers` is the list of container names; leave empty if not yet known.
+    /// The first container in the list is selected by default.
+    pub fn new(pod_name: impl Into<String>, containers: Vec<String>) -> Self {
         Self {
-            title: title.into(),
+            pod_name: pod_name.into(),
+            containers,
+            container_idx: 0,
             model: LogModel::new(),
             scroll: 0,
             mode: InputMode::Normal,
             filter_input: String::new(),
             filter_error: None,
+            selector_visible: false,
+        }
+    }
+
+    /// The name of the currently selected container, if any.
+    pub fn current_container(&self) -> Option<&str> {
+        self.containers.get(self.container_idx).map(|s| s.as_str())
+    }
+
+    /// Derive a display title from pod name + current container.
+    fn display_title(&self) -> String {
+        match self.current_container() {
+            Some(c) => format!("{} / {}", self.pod_name, c),
+            None => self.pod_name.clone(),
         }
     }
 
@@ -91,6 +119,11 @@ impl LogView {
     }
 
     fn handle_normal_key(&mut self, key: KeyEvent) -> LogAction {
+        // Container selector overlay — consumes keys when visible.
+        if self.selector_visible {
+            return self.handle_selector_key(key);
+        }
+
         let visible = self.model.visible_lines().len();
         match key.code {
             KeyCode::Up | KeyCode::Char('k') => self.scroll_up(1),
@@ -107,7 +140,46 @@ impl LogView {
                 self.filter_input = self.model.filter_pattern().unwrap_or("").to_owned();
                 self.filter_error = None;
             }
+            // 'c' opens the container selector (only when multiple containers exist).
+            KeyCode::Char('c') if self.containers.len() > 1 => {
+                self.selector_visible = true;
+            }
             KeyCode::Esc | KeyCode::Char('q') => return LogAction::Close,
+            _ => {}
+        }
+        LogAction::None
+    }
+
+    fn handle_selector_key(&mut self, key: KeyEvent) -> LogAction {
+        match key.code {
+            KeyCode::Esc | KeyCode::Char('q') => {
+                self.selector_visible = false;
+            }
+            KeyCode::Up | KeyCode::Char('k') => {
+                if self.containers.is_empty() {
+                    return LogAction::None;
+                }
+                self.container_idx = if self.container_idx == 0 {
+                    self.containers.len() - 1
+                } else {
+                    self.container_idx - 1
+                };
+            }
+            KeyCode::Down | KeyCode::Char('j') => {
+                if !self.containers.is_empty() {
+                    self.container_idx = (self.container_idx + 1) % self.containers.len();
+                }
+            }
+            KeyCode::Enter => {
+                self.selector_visible = false;
+                if let Some(name) = self.current_container() {
+                    let name = name.to_owned();
+                    // Clear current log buffer — caller will re-stream.
+                    self.model = LogModel::new();
+                    self.scroll = 0;
+                    return LogAction::SwitchContainer(name);
+                }
+            }
             _ => {}
         }
         LogAction::None
@@ -177,6 +249,58 @@ impl LogView {
 
         self.render_log_pane(frame, chunks[0]);
         self.render_filter_bar(frame, chunks[1]);
+
+        // Container selector overlay on top (when active).
+        if self.selector_visible {
+            self.render_container_selector(frame, area);
+        }
+    }
+
+    fn render_container_selector(&self, frame: &mut Frame, area: Rect) {
+        use ratatui::widgets::{Block, Borders, Clear, List, ListItem, ListState};
+
+        if self.containers.is_empty() {
+            return;
+        }
+
+        // Size: max 12 lines tall, 36 cols wide, anchored top-right.
+        let height = (self.containers.len() as u16 + 2).min(14).min(area.height);
+        let width = 38u16.min(area.width);
+        let popup = Rect {
+            x: area.x + area.width.saturating_sub(width),
+            y: area.y,
+            width,
+            height,
+        };
+
+        frame.render_widget(ratatui::widgets::Clear, popup);
+
+        let items: Vec<ListItem> = self
+            .containers
+            .iter()
+            .enumerate()
+            .map(|(i, name)| {
+                let style = if i == self.container_idx {
+                    Style::default()
+                        .fg(Color::Yellow)
+                        .add_modifier(Modifier::BOLD)
+                } else {
+                    Style::default()
+                };
+                ListItem::new(format!(" {name} ")).style(style)
+            })
+            .collect();
+
+        let block = Block::default()
+            .title(" Containers  ↑↓ select  ⏎ switch  Esc cancel ")
+            .borders(Borders::ALL)
+            .border_style(Style::default().fg(Color::Cyan));
+
+        let list = List::new(items).block(block);
+
+        let mut state = ListState::default();
+        state.select(Some(self.container_idx));
+        frame.render_stateful_widget(list, popup, &mut state);
     }
 
     fn render_log_pane(&self, frame: &mut Frame, area: Rect) {
@@ -189,11 +313,19 @@ impl LogView {
         } else {
             format!(" {total} lines")
         };
+        let container_hint = if self.containers.len() > 1 {
+            format!(" [c={}/{}]", self.container_idx + 1, self.containers.len())
+        } else {
+            String::new()
+        };
 
         let block = Block::default()
             .title(format!(
-                " Logs: {}{}{} ",
-                self.title, live_indicator, count_label
+                " Logs: {}{}{}{} ",
+                self.display_title(),
+                live_indicator,
+                count_label,
+                container_hint
             ))
             .borders(Borders::ALL)
             .border_style(Style::default().fg(Color::Cyan));
@@ -322,8 +454,12 @@ fn level_style(level: LogLevel) -> Style {
 mod tests {
     use super::*;
 
+    fn make_view() -> LogView {
+        LogView::new("test-pod", vec!["app".to_owned(), "sidecar".to_owned()])
+    }
+
     fn view_with_lines(lines: &[&str]) -> LogView {
-        let mut v = LogView::new("test-pod");
+        let mut v = make_view();
         for l in lines {
             v.push(*l, None);
         }
@@ -332,7 +468,7 @@ mod tests {
 
     #[test]
     fn push_increases_model_len() {
-        let mut v = LogView::new("pod");
+        let mut v = make_view();
         v.push("hello", None);
         v.push("world", None);
         assert_eq!(v.model.len(), 2);
@@ -340,21 +476,21 @@ mod tests {
 
     #[test]
     fn close_on_q() {
-        let mut v = LogView::new("pod");
+        let mut v = make_view();
         let action = v.handle_key(KeyEvent::new(KeyCode::Char('q'), KeyModifiers::NONE));
         assert_eq!(action, LogAction::Close);
     }
 
     #[test]
     fn close_on_esc_in_normal_mode() {
-        let mut v = LogView::new("pod");
+        let mut v = make_view();
         let action = v.handle_key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
         assert_eq!(action, LogAction::Close);
     }
 
     #[test]
     fn enter_filter_mode_on_slash() {
-        let mut v = LogView::new("pod");
+        let mut v = make_view();
         v.handle_key(KeyEvent::new(KeyCode::Char('/'), KeyModifiers::NONE));
         assert_eq!(v.mode, InputMode::Filter);
     }
@@ -369,8 +505,7 @@ mod tests {
         }
         v.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
         assert!(v.model.is_filtered());
-        // Now Esc in normal mode clears.
-        // But first: Esc from normal mode closes the view, so we use the filter bar Esc instead.
+        // Esc inside filter mode clears the filter and returns to Normal.
         v.handle_key(KeyEvent::new(KeyCode::Char('/'), KeyModifiers::NONE));
         v.handle_key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
         assert!(!v.model.is_filtered());
@@ -378,9 +513,51 @@ mod tests {
 
     #[test]
     fn toggle_timestamps_with_t() {
-        let mut v = LogView::new("pod");
+        let mut v = make_view();
         assert!(!v.model.show_timestamps);
         v.handle_key(KeyEvent::new(KeyCode::Char('t'), KeyModifiers::NONE));
         assert!(v.model.show_timestamps);
+    }
+
+    #[test]
+    fn container_selector_opens_with_c() {
+        let mut v = make_view();
+        assert!(!v.selector_visible);
+        v.handle_key(KeyEvent::new(KeyCode::Char('c'), KeyModifiers::NONE));
+        assert!(v.selector_visible);
+    }
+
+    #[test]
+    fn container_selector_cycles_down() {
+        let mut v = make_view(); // has ["app", "sidecar"]
+        v.handle_key(KeyEvent::new(KeyCode::Char('c'), KeyModifiers::NONE));
+        assert_eq!(v.container_idx, 0);
+        v.handle_key(KeyEvent::new(KeyCode::Down, KeyModifiers::NONE));
+        assert_eq!(v.container_idx, 1);
+    }
+
+    #[test]
+    fn container_selector_enter_emits_switch_action() {
+        let mut v = make_view();
+        v.handle_key(KeyEvent::new(KeyCode::Char('c'), KeyModifiers::NONE));
+        // Select second container.
+        v.handle_key(KeyEvent::new(KeyCode::Down, KeyModifiers::NONE));
+        let action = v.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+        assert_eq!(action, LogAction::SwitchContainer("sidecar".to_owned()));
+        assert!(!v.selector_visible);
+    }
+
+    #[test]
+    fn current_container_returns_selected() {
+        let v = make_view();
+        assert_eq!(v.current_container(), Some("app"));
+    }
+
+    #[test]
+    fn single_container_no_selector() {
+        let mut v = LogView::new("pod", vec!["only".to_owned()]);
+        // 'c' should NOT open the selector when only one container.
+        v.handle_key(KeyEvent::new(KeyCode::Char('c'), KeyModifiers::NONE));
+        assert!(!v.selector_visible);
     }
 }

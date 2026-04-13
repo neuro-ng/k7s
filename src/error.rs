@@ -61,6 +61,21 @@ pub enum ClientError {
     Rbac(String),
 }
 
+/// Errors originating from DAO operations.
+#[derive(Error, Debug)]
+pub enum DaoError {
+    #[error("reading kubeconfig: {source}")]
+    KubeConfig {
+        source: Box<dyn std::error::Error + Send + Sync>,
+    },
+
+    #[error("kubernetes API error: {0}")]
+    Api(#[from] kube::Error),
+
+    #[error("resource not found: {name}")]
+    NotFound { name: String },
+}
+
 /// Errors originating from the data sanitizer pipeline.
 ///
 /// These are security-critical; every error must be logged for audit.

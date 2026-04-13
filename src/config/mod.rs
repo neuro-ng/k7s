@@ -9,12 +9,15 @@ pub mod cluster;
 pub mod hotkey;
 pub mod plugin;
 pub mod skin;
+pub mod views;
+pub mod watcher;
 
 pub use alias::AliasConfig;
 pub use cluster::{ClusterConfig, ClusterRegistry, FeatureGates};
 pub use hotkey::HotkeyConfig;
 pub use plugin::{Plugin, PluginConfig, PluginContext};
 pub use skin::Skin;
+pub use views::{CustomColumnDef, CustomColumnRenderer, ResourceViewConfig, ViewsConfig};
 
 /// XDG-compliant directory paths for k7s runtime files.
 ///

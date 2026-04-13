@@ -17,6 +17,7 @@ use kube::runtime::reflector::Store;
 use ratatui::layout::{Constraint, Rect};
 use ratatui::Frame;
 
+use crate::client::Gvr;
 use crate::render::{ColumnDef, Renderer};
 use crate::ui::table::{RowDelta, TableRow, TableWidget};
 
@@ -24,12 +25,16 @@ use crate::ui::table::{RowDelta, TableRow, TableWidget};
 pub struct BrowserView {
     /// The resource type being browsed (display name).
     pub title: String,
+    /// GVR of the resource type — used for drill-down routing (e.g. pods → containers).
+    pub resource_gvr: Option<Gvr>,
     /// The renderer for this resource type.
     renderer: Box<dyn Renderer>,
     /// The table widget that handles display and selection.
     pub table: TableWidget,
     /// Previous snapshot of object UIDs → resource version for delta tracking.
     prev_versions: HashMap<String, String>,
+    /// Raw JSON values parallel to `table.all_rows` — populated by `refresh_from_values`.
+    raw_values: Vec<serde_json::Value>,
 }
 
 impl BrowserView {
@@ -45,9 +50,11 @@ impl BrowserView {
 
         Self {
             title,
+            resource_gvr: None,
             renderer,
             table: TableWidget::new(columns),
             prev_versions: HashMap::new(),
+            raw_values: Vec::new(),
         }
     }
 
@@ -123,7 +130,16 @@ impl BrowserView {
                 }
             })
             .collect();
+        self.raw_values = values.to_vec();
         self.table.set_rows(rows);
+    }
+
+    /// Return the raw JSON value for the currently selected row, if any.
+    ///
+    /// Only populated when the view was built via [`refresh_from_values`].
+    pub fn selected_value(&self) -> Option<serde_json::Value> {
+        let raw_idx = self.table.selected_raw_idx()?;
+        self.raw_values.get(raw_idx).cloned()
     }
 
     /// Render the browser into the frame area.
@@ -164,6 +180,47 @@ impl BrowserView {
             .selected_row()
             .and_then(|r| r.cells.first().cloned())
     }
+
+    /// The namespace of the currently selected resource, if the row contains one.
+    ///
+    /// Reads the `NAMESPACE` column from the rendered row; returns `None` for
+    /// cluster-scoped resources (Nodes, PVs, etc.) whose rows have no namespace cell.
+    pub fn selected_namespace(&self) -> Option<String> {
+        // Look for a column named "NAMESPACE" (case-insensitive).
+        let ns_col = self
+            .renderer
+            .columns()
+            .iter()
+            .position(|c| c.name.eq_ignore_ascii_case("namespace"))?;
+        self.table
+            .selected_row()
+            .and_then(|r| r.cells.get(ns_col).cloned())
+            .filter(|s| !s.is_empty())
+    }
+}
+
+/// Build a pre-populated `BrowserView` showing all kubeconfig contexts.
+///
+/// Loads contexts from disk (no API call). Returns the view even when no
+/// kubeconfig is present — the table will simply be empty with a placeholder.
+pub fn context_browser() -> BrowserView {
+    use crate::dao::ContextDao;
+    use crate::render::ContextRenderer;
+
+    let mut view = BrowserView::new("Contexts".to_owned(), Box::new(ContextRenderer::new()));
+
+    // Load contexts; if kubeconfig is absent or unreadable, show empty table.
+    let entries: Vec<serde_json::Value> = ContextDao::load()
+        .map(|dao| {
+            dao.list()
+                .iter()
+                .filter_map(|e| serde_json::to_value(e).ok())
+                .collect()
+        })
+        .unwrap_or_default();
+
+    view.refresh_from_values(&entries);
+    view
 }
 
 /// Build a `BrowserView` for a named resource type.
@@ -172,16 +229,20 @@ impl BrowserView {
 pub fn browser_for_resource(alias: &str, registry: &crate::dao::Registry) -> Option<BrowserView> {
     use crate::client::gvr::well_known;
     use crate::render::{
-        ClusterRoleBindingRenderer, ClusterRoleRenderer, ConfigMapRenderer, CronJobRenderer,
-        DaemonSetRenderer, DeploymentRenderer, EventRenderer, GenericRenderer, JobRenderer,
-        NamespaceRenderer, NodeRenderer, PodRenderer, PvRenderer, PvcRenderer, ReplicaSetRenderer,
-        RoleBindingRenderer, RoleRenderer, SecretRenderer, ServiceRenderer, StatefulSetRenderer,
+        ClusterRoleBindingRenderer, ClusterRoleRenderer, ConfigMapRenderer, CrdRenderer,
+        CronJobRenderer, DaemonSetRenderer, DeploymentRenderer, EventRenderer, GenericRenderer,
+        JobRenderer, NamespaceRenderer, NodeRenderer, PodRenderer, PvRenderer, PvcRenderer,
+        ReplicaSetRenderer, RoleBindingRenderer, RoleRenderer, SecretRenderer, ServiceRenderer,
+        StatefulSetRenderer,
     };
 
     let meta = registry.get_by_alias(alias)?;
     let gvr = meta.gvr.clone();
     let title = meta.display_name.clone();
     let namespaced = meta.namespaced;
+
+    // Keep a copy of gvr to attach to the view after the match consumes it.
+    let gvr_copy = gvr.clone();
 
     let renderer: Box<dyn Renderer> = match gvr {
         g if g == well_known::pods() => Box::new(PodRenderer::new()),
@@ -205,10 +266,67 @@ pub fn browser_for_resource(alias: &str, registry: &crate::dao::Registry) -> Opt
         g if g == well_known::cluster_role_bindings() => {
             Box::new(ClusterRoleBindingRenderer::new())
         }
+        g if g == well_known::custom_resource_definitions() => Box::new(CrdRenderer::new()),
         g => Box::new(GenericRenderer::new(g, namespaced)),
     };
 
-    Some(BrowserView::new(title, renderer))
+    let mut view = BrowserView::new(title, renderer);
+    view.resource_gvr = Some(gvr_copy);
+    Some(view)
+}
+
+/// Build a `BrowserView` showing containers extracted from a pod JSON.
+///
+/// The container list is derived from the pod's spec/status (no API call).
+pub fn container_browser(pod: &serde_json::Value) -> BrowserView {
+    use crate::dao::containers_from_pod;
+    use crate::render::ContainerRenderer;
+
+    let pod_name = pod
+        .pointer("/metadata/name")
+        .and_then(|v| v.as_str())
+        .unwrap_or("pod");
+
+    let mut view = BrowserView::new(
+        format!("Containers({pod_name})"),
+        Box::new(ContainerRenderer::new()),
+    );
+
+    let values: Vec<serde_json::Value> = containers_from_pod(pod)
+        .into_iter()
+        .map(|c| c.to_json())
+        .collect();
+
+    view.refresh_from_values(&values);
+    view
+}
+
+/// Build a `BrowserView` listing every resource alias known to the registry.
+pub fn alias_browser(registry: &crate::dao::Registry) -> BrowserView {
+    use crate::render::AliasRenderer;
+
+    let mut view = BrowserView::new("Aliases".to_owned(), Box::new(AliasRenderer::new()));
+
+    let values: Vec<serde_json::Value> = registry
+        .all_sorted()
+        .into_iter()
+        .map(|meta| {
+            let apiversion = if meta.gvr.group.is_empty() {
+                meta.gvr.version.clone()
+            } else {
+                format!("{}/{}", meta.gvr.group, meta.gvr.version)
+            };
+            serde_json::json!({
+                "resource":   meta.display_name,
+                "apiversion": apiversion,
+                "namespaced": if meta.namespaced { "true" } else { "false" },
+                "aliases":    meta.aliases.join(", "),
+            })
+        })
+        .collect();
+
+    view.refresh_from_values(&values);
+    view
 }
 
 #[cfg(test)]

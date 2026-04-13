@@ -40,8 +40,12 @@ pub enum Action {
     Enter,
     /// Navigate back (escape / previous view).
     Back,
-    /// Go back one view in history.
+    /// Go back one step in navigation history (`[`).
     HistoryBack,
+    /// Go forward one step in navigation history (`]`).
+    HistoryForward,
+    /// Toggle to the last-visited resource (`-`).
+    HistoryLast,
     /// Sort the table by the current column.
     SortColumn,
     /// Move cursor up.
@@ -68,6 +72,8 @@ pub enum Action {
     Chat,
     /// Ask the AI to analyse the selected resource.
     AiAnalyse,
+    /// Set/update the container image for a workload.
+    SetImage,
     /// An action that has no semantic mapping (unhandled key press).
     Unhandled(KeyCode),
 }
@@ -91,8 +97,10 @@ pub fn resolve(event: &KeyEvent) -> Action {
         (Char(':'), false) => Action::CommandPrompt,
         (Char('?'), false) => Action::Help,
         (Enter, false) => Action::Enter,
-        (Esc, false) | (Char('['), false) => Action::Back,
-        (Backspace, false) => Action::HistoryBack,
+        (Esc, false) => Action::Back,
+        (Char('['), false) | (Backspace, false) => Action::HistoryBack,
+        (Char(']'), false) => Action::HistoryForward,
+        (Char('-'), false) => Action::HistoryLast,
 
         // Cursor movement
         (Up, false) | (Char('k'), false) => Action::Up,
@@ -112,6 +120,7 @@ pub fn resolve(event: &KeyEvent) -> Action {
         (Char('e'), false) => Action::Shell,
         (Char('f'), false) => Action::PortForward,
         (Char('c'), false) => Action::Copy,
+        (Char('i'), false) => Action::SetImage,
         (Char('a'), false) => Action::ToggleAllNamespaces,
 
         // Utility
@@ -137,19 +146,23 @@ pub struct KeyHint {
 pub const LIST_HINTS: &[KeyHint] = &[
     KeyHint {
         key: "↑↓/jk",
-        description: "Navigate",
+        description: "Move",
     },
     KeyHint {
         key: "⏎",
         description: "Select",
     },
     KeyHint {
-        key: "d",
-        description: "Describe",
+        key: "[/]",
+        description: "History",
     },
     KeyHint {
-        key: "y",
-        description: "YAML",
+        key: "-",
+        description: "Last",
+    },
+    KeyHint {
+        key: "d",
+        description: "Describe",
     },
     KeyHint {
         key: "l",
@@ -223,6 +236,26 @@ mod tests {
     #[test]
     fn d_resolves_to_describe() {
         assert_eq!(resolve(&key(KeyCode::Char('d'))), Action::Describe);
+    }
+
+    #[test]
+    fn bracket_resolves_to_history_back() {
+        assert_eq!(resolve(&key(KeyCode::Char('['))), Action::HistoryBack);
+    }
+
+    #[test]
+    fn close_bracket_resolves_to_history_forward() {
+        assert_eq!(resolve(&key(KeyCode::Char(']'))), Action::HistoryForward);
+    }
+
+    #[test]
+    fn dash_resolves_to_history_last() {
+        assert_eq!(resolve(&key(KeyCode::Char('-'))), Action::HistoryLast);
+    }
+
+    #[test]
+    fn esc_resolves_to_back() {
+        assert_eq!(resolve(&key(KeyCode::Esc)), Action::Back);
     }
 
     #[test]

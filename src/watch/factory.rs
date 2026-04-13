@@ -56,6 +56,11 @@ impl WatcherFactory {
         }
     }
 
+    /// Return a reference to the underlying K8s client.
+    pub fn client(&self) -> &Client {
+        &self.client
+    }
+
     /// Ensure a watcher is running for this GVR + namespace.
     ///
     /// Idempotent: if a watcher is already running for this key, returns the
@@ -168,7 +173,7 @@ fn gvr_to_api_resource(gvr: &Gvr) -> ApiResource {
 /// explicitly; the fallback strips a trailing `s`.
 ///
 /// `pub(crate)` so `dao::generic` can reuse this without duplicating the mapping.
-pub(crate) fn resource_to_kind(resource: &str) -> String {
+pub fn resource_to_kind(resource: &str) -> String {
     // Explicit overrides for irregular plurals.
     match resource {
         "endpoints" => return "Endpoints".to_owned(),

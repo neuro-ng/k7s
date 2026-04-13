@@ -11,7 +11,11 @@
 //! - No additional deserialization round-trip for typed resources.
 //! - Renderer logic is testable with plain `serde_json::json!()` literals.
 
+pub mod alias;
 pub mod config_map;
+pub mod container;
+pub mod context;
+pub mod crd;
 pub mod cron_job;
 pub mod daemon_set;
 pub mod deployment;
@@ -29,7 +33,11 @@ pub mod secret;
 pub mod service;
 pub mod stateful_set;
 
+pub use alias::AliasRenderer;
 pub use config_map::ConfigMapRenderer;
+pub use container::ContainerRenderer;
+pub use context::{context_gvr, ContextRenderer};
+pub use crd::CrdRenderer;
 pub use cron_job::CronJobRenderer;
 pub use daemon_set::DaemonSetRenderer;
 pub use deployment::DeploymentRenderer;

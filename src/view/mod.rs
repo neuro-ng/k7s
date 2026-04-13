@@ -5,12 +5,22 @@
 pub mod actions;
 pub mod browser;
 pub mod describe;
+pub mod help;
 pub mod log;
 pub mod owner;
+pub mod pulse;
+pub mod reference;
 pub mod registrar;
+pub mod workload;
 
-pub use browser::{browser_for_resource, BrowserView};
+pub use browser::{
+    alias_browser, browser_for_resource, container_browser, context_browser, BrowserView,
+};
 pub use describe::DescribeView;
+pub use help::{HelpAction, HelpView};
 pub use log::{LogAction, LogView};
 pub use owner::{controller_owner, gvr_for_kind, resolve_owners, OwnerRef};
+pub use pulse::{PulseAction, PulseView};
+pub use reference::{scan_pods_for_refs, ReferenceKind, UsageRef, UsedByView};
 pub use registrar::{view_for, ViewEntry};
+pub use workload::{WorkloadAction, WorkloadEntry, WorkloadView};

@@ -13,22 +13,34 @@
 //! All async operations take a `kube::Client` reference — DAOs themselves
 //! are stateless and cheap to construct.
 
+pub mod container;
+pub mod context;
+pub mod crd;
 pub mod cron_job;
 pub mod daemon_set;
 pub mod deployment;
 pub mod generic;
 pub mod helm;
 pub mod job;
+pub mod ops;
 pub mod pod;
+pub mod rbac;
 pub mod registry;
 pub mod replica_set;
 pub mod stateful_set;
 pub mod traits;
 
+pub use container::{container_gvr, containers_from_pod, ContainerInfo, ContainerKind};
+pub use context::{ContextDao, ContextEntry};
+pub use crd::{discover_crds, CrdMeta};
 pub use cron_job::CronJobDao;
 pub use daemon_set::DaemonSetDao;
 pub use helm::{HelmDao, HelmError, HelmHistoryEntry, HelmRelease};
 pub use job::JobDao;
+pub use rbac::{
+    ClusterRoleBindingDao, ClusterRoleDao, PolicyRule, RoleBindingDao, RoleDao, Subject,
+    SubjectKind,
+};
 pub use registry::Registry;
 pub use replica_set::ReplicaSetDao;
 pub use stateful_set::StatefulSetDao;

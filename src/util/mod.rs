@@ -4,7 +4,9 @@
 //! Kubernetes client or TUI layer.
 
 pub mod clipboard;
+pub mod fuzzy;
 pub mod screen_dump;
 
 pub use clipboard::{copy as clipboard_copy, ClipboardBackend, ClipboardError};
+pub use fuzzy::{fuzzy_match, FuzzyMatch};
 pub use screen_dump::{default_path, dump, DumpFormat, TableSnapshot};

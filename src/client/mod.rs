@@ -4,6 +4,7 @@
 
 pub mod config;
 pub mod gvr;
+pub mod metrics;
 pub mod rbac;
 pub mod retry;
 

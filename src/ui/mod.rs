@@ -3,6 +3,7 @@ pub mod chat;
 pub mod dialog;
 pub mod key;
 pub mod prompt;
+pub mod splash;
 pub mod table;
 
 pub use app::run;

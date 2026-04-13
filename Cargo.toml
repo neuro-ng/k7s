@@ -83,6 +83,9 @@ tokio-util = { version = "0.7", features = ["rt"] }
 # Exponential backoff for retry logic
 backoff = { version = "0.4", features = ["tokio"] }
 
+# File-system event watching (config live-reload)
+notify = "6"
+
 [build-dependencies]
 clap = { version = "4", features = ["derive"] }
 clap_complete = "4"

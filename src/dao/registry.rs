@@ -57,6 +57,19 @@ impl Registry {
         metas
     }
 
+    /// Register CRDs discovered from the cluster.
+    ///
+    /// Called after the K8s client is ready.  Each CRD is added as a new
+    /// alias in the registry so the user can navigate to it with `:foos`.
+    pub fn register_crds(
+        &mut self,
+        metas: impl IntoIterator<Item = crate::dao::traits::ResourceMeta>,
+    ) {
+        for meta in metas {
+            self.register(meta);
+        }
+    }
+
     fn register_builtins(&mut self) {
         // Core group
         self.register(ResourceMeta::new(

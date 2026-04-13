@@ -107,6 +107,14 @@ impl TableWidget {
         self.all_rows.get(raw_idx)
     }
 
+    /// Return the raw (pre-filter) index of the selected row.
+    ///
+    /// Used by `BrowserView::selected_value()` to look up the original JSON.
+    pub fn selected_raw_idx(&self) -> Option<usize> {
+        let idx = self.state.selected()?;
+        self.filtered_indices.get(idx).copied()
+    }
+
     /// Move cursor up by one.
     pub fn up(&mut self) {
         let len = self.filtered_indices.len();
