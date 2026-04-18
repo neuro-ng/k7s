@@ -1,12 +1,17 @@
-//! Cluster health assessment — Phase 6.20.
+//! Cluster health assessment — Phase 6.20 / 14.2.
 //!
 //! Provides the [`ClusterSummary`] data model that the Pulse view uses to
 //! display a cluster-at-a-glance dashboard.  The summary is built from
 //! pre-serialised resource snapshots (so it works with both live data and
 //! tests without requiring a running cluster).
 //!
+//! Phase 14.2 adds the [`mem`] sub-module for process memory statistics.
+//!
 //! # k9s Reference
 //! `internal/view/pulse.go`
+
+pub mod mem;
+pub use mem::HeapStats;
 
 use serde_json::Value;
 

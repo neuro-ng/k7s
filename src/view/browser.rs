@@ -154,6 +154,10 @@ impl BrowserView {
     pub fn down(&mut self) {
         self.table.down();
     }
+    /// Move cursor to a specific row index (mouse click support).
+    pub fn set_cursor(&mut self, row: usize) {
+        self.table.set_cursor(row);
+    }
     pub fn page_up(&mut self) {
         self.table.page_up(20);
     }

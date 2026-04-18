@@ -120,7 +120,7 @@ impl RoleDao {
         let api: Api<Role> = Api::namespaced(client.clone(), namespace);
         let role = api.get(name).await?;
         Ok(extract_role_rules(
-            &name.to_owned(),
+            name,
             false,
             role.rules.as_deref(),
         ))
@@ -283,7 +283,7 @@ impl ClusterRoleDao {
         let api: Api<ClusterRole> = Api::all(client.clone());
         let role = api.get(name).await?;
         Ok(extract_role_rules(
-            &name.to_owned(),
+            name,
             true,
             role.rules.as_deref(),
         ))

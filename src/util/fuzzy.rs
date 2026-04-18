@@ -103,7 +103,7 @@ fn word_boundary_match(text: &str, query: &str) -> bool {
 
     let mut qi = boundary_chars.iter();
     for qc in query.chars() {
-        if qi.find(|&&bc| bc == qc).is_none() {
+        if !qi.any(|&bc| bc == qc) {
             return false;
         }
     }
@@ -114,7 +114,7 @@ fn word_boundary_match(text: &str, query: &str) -> bool {
 fn subsequence_match(text: &str, query: &str) -> bool {
     let mut ti = text.chars();
     for qc in query.chars() {
-        if ti.find(|&tc| tc == qc).is_none() {
+        if !ti.any(|tc| tc == qc) {
             return false;
         }
     }

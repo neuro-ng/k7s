@@ -93,6 +93,7 @@ pub struct K7sConfig {
     pub ui: UiConfig,
     pub logger: LoggerConfig,
     pub ai: AiConfig,
+    pub benchmark: BenchmarkConfig,
 }
 
 impl Default for K7sConfig {
@@ -103,6 +104,7 @@ impl Default for K7sConfig {
             ui: UiConfig::default(),
             logger: LoggerConfig::default(),
             ai: AiConfig::default(),
+            benchmark: BenchmarkConfig::default(),
         }
     }
 }
@@ -194,6 +196,60 @@ impl Default for SanitizerConfig {
             strict_mode: true,
             audit_log: true,
             custom_patterns: Vec::new(),
+        }
+    }
+}
+
+/// HTTP benchmark configuration — Phase 9.8.
+///
+/// Controls how the built-in benchmark runner sends load against a target URL.
+/// Corresponds to `benchmarkConfig` in `config.yaml`.
+///
+/// Example:
+/// ```yaml
+/// k7s:
+///   benchmark:
+///     concurrency: 50
+///     totalRequests: 1000
+///     timeoutMs: 5000
+///     http2: false
+///     method: GET
+/// ```
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct BenchmarkConfig {
+    /// Number of concurrent workers sending requests.
+    pub concurrency: u32,
+    /// Total number of requests to send before stopping.
+    ///
+    /// Set to `0` to run for `duration_secs` instead.
+    pub total_requests: u32,
+    /// Run for this many seconds (used when `total_requests == 0`).
+    pub duration_secs: u32,
+    /// Per-request timeout in milliseconds.
+    pub timeout_ms: u64,
+    /// Force HTTP/2.
+    pub http2: bool,
+    /// HTTP method (GET, POST, PUT, etc.).
+    pub method: String,
+    /// Optional request body for POST/PUT.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub body: Option<String>,
+    /// Additional request headers as `"Name: Value"` strings.
+    pub headers: Vec<String>,
+}
+
+impl Default for BenchmarkConfig {
+    fn default() -> Self {
+        Self {
+            concurrency: 10,
+            total_requests: 200,
+            duration_secs: 0,
+            timeout_ms: 5_000,
+            http2: false,
+            method: "GET".to_owned(),
+            body: None,
+            headers: Vec::new(),
         }
     }
 }

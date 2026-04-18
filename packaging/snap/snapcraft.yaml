@@ -1,0 +1,79 @@
+# Snap package for k7s — Phase 14.8
+#
+# Build locally:
+#   sudo snap install snapcraft --classic
+#   cd packaging/snap && snapcraft
+#
+# Install the resulting .snap:
+#   sudo snap install k7s_0.1.0_amd64.snap --dangerous
+#
+# Publish to the Snap Store:
+#   snapcraft login
+#   snapcraft upload k7s_0.1.0_amd64.snap --release stable
+#
+# Snapcraft documentation: https://snapcraft.io/docs
+
+name: k7s
+base: core22
+version: "0.1.0"
+summary: Security-first Kubernetes TUI with AI-powered cluster analysis
+description: |
+  k7s is a performance-focused Kubernetes terminal UI with three core priorities:
+
+  1. Performance & Low Footprint — minimal memory, fast startup, efficient resource watching.
+  2. Security-First AI Integration — cluster metadata only; secrets never reach the LLM.
+  3. Smart Cluster Operations — AI-assisted log analysis, troubleshooting, and recommendations.
+
+  Features:
+  - Browse pods, deployments, services, and all K8s resources
+  - Real-time resource watching with configurable refresh rates
+  - AI chat window for cluster analysis (supports API key and Google ADC)
+  - Image vulnerability scanning via trivy integration
+  - Local filesystem directory browser
+  - Port-forwarding, scaling, image updates, and rollout management
+  - XRay resource-tree view
+
+  Requires a valid kubeconfig at ~/.kube/config (KUBECONFIG env var supported).
+  For AI features, set K7S_LLM_API_KEY or configure ~/.config/k7s/config.yaml.
+
+license: Apache-2.0
+website: https://github.com/your-org/k7s
+contact: https://github.com/your-org/k7s/issues
+
+grade: devel   # change to "stable" once published
+confinement: classic  # classic: allows kubeconfig access and spawning kubectl
+
+architectures:
+  - build-on: amd64
+  - build-on: arm64
+
+parts:
+  k7s:
+    plugin: rust
+    source: ../..
+    source-type: local
+    build-packages:
+      - pkg-config
+      - libssl-dev
+    rust-features:
+      - jemalloc
+    override-build: |
+      craftctl default
+      # Generate shell completions if the binary supports it.
+      ./target/release/k7s completions bash > k7s.bash 2>/dev/null || true
+      ./target/release/k7s completions zsh  > _k7s 2>/dev/null || true
+      ./target/release/k7s completions fish > k7s.fish 2>/dev/null || true
+
+apps:
+  k7s:
+    command: bin/k7s
+    # classic confinement: no plugs needed (accesses kubeconfig, /proc, etc.)
+    environment:
+      # Ensure the snap's SSL certificates are found.
+      SSL_CERT_DIR: /etc/ssl/certs
+
+plugs:
+  home:
+    interface: home
+  network:
+    interface: network

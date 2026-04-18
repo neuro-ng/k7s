@@ -123,12 +123,12 @@ impl NavHistory {
 
     /// `true` when there is at least one entry behind the cursor.
     pub fn can_go_back(&self) -> bool {
-        self.cursor.map_or(false, |i| i > 0)
+        self.cursor.is_some_and(|i| i > 0)
     }
 
     /// `true` when there is at least one entry ahead of the cursor.
     pub fn can_go_forward(&self) -> bool {
-        self.cursor.map_or(false, |i| i + 1 < self.entries.len())
+        self.cursor.is_some_and(|i| i + 1 < self.entries.len())
     }
 
     /// Breadcrumb trail — the last few entries up to and including the cursor.

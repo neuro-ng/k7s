@@ -46,6 +46,10 @@ pub enum PromptSubmit {
     Context(String),
     /// Filter the current view.
     Filter(String),
+    /// Re-run the Nth-last command from unified history (1-based, 1 = most recent).
+    ///
+    /// Triggered by `:retry [N]` or `!!` (equivalent to `:retry 1`).
+    Retry(usize),
     /// User cancelled (empty submit or Esc).
     Cancel,
 }
@@ -256,6 +260,19 @@ fn parse_command(cmd: &str) -> PromptSubmit {
             Some(f) if !f.is_empty() => PromptSubmit::Filter(f.to_owned()),
             _ => PromptSubmit::Cancel,
         },
+        // Retry: `:retry [N]`, `:!!`, or `!!`
+        "retry" | "!!" => {
+            let n = arg
+                .and_then(|s| s.parse::<usize>().ok())
+                .unwrap_or(1)
+                .max(1);
+            PromptSubmit::Retry(n)
+        }
+        // Shell-history style `!N` shorthand (e.g. `:!3` → retry 3rd-last).
+        s if s.starts_with('!') => {
+            let n = s[1..].parse::<usize>().unwrap_or(1).max(1);
+            PromptSubmit::Retry(n)
+        }
         // Anything else: treat as resource navigation.
         resource => PromptSubmit::Navigate(resource.to_owned()),
     }
@@ -366,6 +383,30 @@ mod tests {
     #[test]
     fn parse_empty_is_cancel() {
         assert_eq!(parse_command(""), PromptSubmit::Cancel);
+    }
+
+    #[test]
+    fn parse_retry_bare() {
+        assert_eq!(parse_command("retry"), PromptSubmit::Retry(1));
+        assert_eq!(parse_command("!!"), PromptSubmit::Retry(1));
+    }
+
+    #[test]
+    fn parse_retry_with_n() {
+        assert_eq!(parse_command("retry 3"), PromptSubmit::Retry(3));
+        assert_eq!(parse_command("!! 5"), PromptSubmit::Retry(5));
+    }
+
+    #[test]
+    fn parse_bang_n_shorthand() {
+        assert_eq!(parse_command("!2"), PromptSubmit::Retry(2));
+        assert_eq!(parse_command("!10"), PromptSubmit::Retry(10));
+    }
+
+    #[test]
+    fn parse_retry_zero_clamps_to_one() {
+        // 0 is not a valid position; clamp to 1.
+        assert_eq!(parse_command("retry 0"), PromptSubmit::Retry(1));
     }
 
     #[test]

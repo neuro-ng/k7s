@@ -9,12 +9,15 @@
 #![allow(dead_code, unused_imports)]
 
 pub mod ai;
+pub mod bench;
+pub mod metrics;
 pub mod client;
 pub mod config;
 pub mod dao;
 pub mod error;
 pub mod exec;
 pub mod health;
+pub mod history;
 pub mod model;
 pub mod portforward;
 pub mod render;
@@ -22,4 +25,5 @@ pub mod sanitizer;
 pub mod ui;
 pub mod util;
 pub mod view;
+pub mod vul;
 pub mod watch;

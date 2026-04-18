@@ -74,6 +74,8 @@ pub enum Action {
     AiAnalyse,
     /// Set/update the container image for a workload.
     SetImage,
+    /// Scan the selected image for vulnerabilities.
+    VulnScan,
     /// An action that has no semantic mapping (unhandled key press).
     Unhandled(KeyCode),
 }
@@ -121,6 +123,7 @@ pub fn resolve(event: &KeyEvent) -> Action {
         (Char('f'), false) => Action::PortForward,
         (Char('c'), false) => Action::Copy,
         (Char('i'), false) => Action::SetImage,
+        (Char('v'), false) => Action::VulnScan,
         (Char('a'), false) => Action::ToggleAllNamespaces,
 
         // Utility

@@ -128,6 +128,16 @@ impl ChatWidget {
         self.scroll = usize::MAX / 2;
     }
 
+    /// Scroll the message history up by `n` lines (for mouse wheel support).
+    pub fn scroll_up(&mut self, n: usize) {
+        self.scroll = self.scroll.saturating_sub(n);
+    }
+
+    /// Scroll the message history down by `n` lines (for mouse wheel support).
+    pub fn scroll_down(&mut self, n: usize) {
+        self.scroll = self.scroll.saturating_add(n);
+    }
+
     /// Render the chat window into the given area.
     pub fn render(&mut self, frame: &mut Frame, area: Rect) {
         // Layout: [message pane | token bar] / [input bar]

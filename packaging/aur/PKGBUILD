@@ -1,0 +1,62 @@
+# Maintainer: k7s contributors <https://github.com/your-org/k7s>
+#
+# AUR package for k7s — Phase 14.8
+#
+# Build and install:
+#   git clone https://aur.archlinux.org/k7s.git   # once published to AUR
+#   cd k7s && makepkg -si
+#
+# Or from a local checkout:
+#   cp packaging/aur/PKGBUILD .
+#   makepkg -si
+
+pkgname=k7s
+pkgver=0.1.0
+pkgrel=1
+pkgdesc="Performance-focused, security-first Kubernetes TUI with AI-powered cluster analysis"
+arch=('x86_64' 'aarch64')
+url="https://github.com/your-org/k7s"
+license=('Apache')
+
+# Runtime: kubectl for CLI parity; trivy is optional (vulnerability scanning).
+depends=('kubectl')
+optdepends=(
+    'trivy: image vulnerability scanning (:vuln view)'
+    'gcloud: Google Antigravity ADC authentication for AI chat'
+)
+
+makedepends=('rust' 'cargo')
+
+# Source: update URL and sha256sum for each release.
+source=("${pkgname}-${pkgver}.tar.gz::https://github.com/your-org/k7s/archive/refs/tags/v${pkgver}.tar.gz")
+sha256sums=('REPLACE_WITH_ACTUAL_SHA256')
+
+build() {
+    cd "${pkgname}-${pkgver}"
+    # Build the release binary.  Enable jemalloc for lower memory overhead.
+    cargo build --release --features jemalloc
+}
+
+check() {
+    cd "${pkgname}-${pkgver}"
+    cargo test --release
+}
+
+package() {
+    cd "${pkgname}-${pkgver}"
+
+    # Install the binary.
+    install -Dm755 "target/release/k7s" "${pkgdir}/usr/bin/k7s"
+
+    # Install shell completions.
+    install -Dm644 "completions/k7s.bash" \
+        "${pkgdir}/usr/share/bash-completion/completions/k7s" 2>/dev/null || true
+    install -Dm644 "completions/_k7s" \
+        "${pkgdir}/usr/share/zsh/site-functions/_k7s" 2>/dev/null || true
+    install -Dm644 "completions/k7s.fish" \
+        "${pkgdir}/usr/share/fish/vendor_completions.d/k7s.fish" 2>/dev/null || true
+
+    # Install licence and docs.
+    install -Dm644 LICENSE "${pkgdir}/usr/share/licenses/${pkgname}/LICENSE"
+    install -Dm644 README.md "${pkgdir}/usr/share/doc/${pkgname}/README.md" 2>/dev/null || true
+}

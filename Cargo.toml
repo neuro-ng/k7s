@@ -20,6 +20,11 @@ path = "src/lib.rs"
 name = "sanitizer"
 harness = false
 
+[features]
+# Enable jemalloc as the global allocator for improved heap fragmentation and
+# reduced memory overhead.  Activate with: cargo build --features jemalloc
+jemalloc = ["dep:tikv-jemallocator"]
+
 [dependencies]
 # CLI argument parsing + shell completion generation
 clap = { version = "4", features = ["derive"] }
@@ -85,6 +90,9 @@ backoff = { version = "0.4", features = ["tokio"] }
 
 # File-system event watching (config live-reload)
 notify = "6"
+
+# Optional: jemalloc global allocator (enabled by the `jemalloc` feature flag)
+tikv-jemallocator = { version = "0.6", optional = true }
 
 [build-dependencies]
 clap = { version = "4", features = ["derive"] }

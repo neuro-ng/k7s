@@ -115,6 +115,18 @@ impl TableWidget {
         self.filtered_indices.get(idx).copied()
     }
 
+    /// Move cursor to an absolute row index (clamped to valid range).
+    ///
+    /// Used for mouse-click navigation: the caller computes the approximate
+    /// data row from the mouse `row` coordinate and calls this method.
+    pub fn set_cursor(&mut self, row: usize) {
+        let len = self.filtered_indices.len();
+        if len == 0 {
+            return;
+        }
+        self.state.select(Some(row.min(len - 1)));
+    }
+
     /// Move cursor up by one.
     pub fn up(&mut self) {
         let len = self.filtered_indices.len();

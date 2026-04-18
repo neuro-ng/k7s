@@ -350,6 +350,168 @@ impl Default for PortForwardView {
     }
 }
 
+// ─── Fast-forwards — Phase 8.6 ───────────────────────────────────────────────
+
+/// Annotation key k7s reads to auto-start port-forwards.
+///
+/// Supported annotation value formats:
+///
+/// | Value | Meaning |
+/// |-------|---------|
+/// | `"8080:80"` | local port 8080 → pod port 80 |
+/// | `"8080"` | local port 8080 → pod port 8080 (same) |
+/// | `"8080:80,9090:90"` | multiple forwards, comma-separated |
+///
+/// Example annotation on a pod or service:
+/// ```yaml
+/// metadata:
+///   annotations:
+///     k7s.io/portforward: "8080:80,9090:90"
+/// ```
+pub const FAST_FORWARD_ANNOTATION: &str = "k7s.io/portforward";
+
+/// A single port-forward spec parsed from the fast-forward annotation.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FastForwardSpec {
+    /// Local port to bind on 127.0.0.1.
+    pub local_port: u16,
+    /// Target port inside the pod/service.
+    pub pod_port: u16,
+    /// Target pod or service name.
+    pub target: String,
+    /// Namespace.
+    pub namespace: String,
+}
+
+/// Result of applying fast-forwards to a set of resources.
+#[derive(Debug, Default)]
+pub struct FastForwardResult {
+    /// Forwards that were successfully started.
+    pub started: Vec<FastForwardSpec>,
+    /// Forwards that were skipped because an equivalent one is already running.
+    pub skipped: Vec<FastForwardSpec>,
+    /// Forwards that failed to start, with error messages.
+    pub failed: Vec<(FastForwardSpec, String)>,
+}
+
+/// Parse a fast-forward annotation value into a list of [`FastForwardSpec`]s.
+///
+/// Returns an empty `Vec` if the value is empty or malformed.
+///
+/// ```
+/// use k7s::portforward::parse_fast_forward_annotation;
+/// let specs = parse_fast_forward_annotation("8080:80,9090:90", "nginx", "default");
+/// assert_eq!(specs.len(), 2);
+/// assert_eq!(specs[0].local_port, 8080);
+/// assert_eq!(specs[0].pod_port, 80);
+/// assert_eq!(specs[1].local_port, 9090);
+/// assert_eq!(specs[1].pod_port, 90);
+/// ```
+pub fn parse_fast_forward_annotation(
+    value: &str,
+    target: &str,
+    namespace: &str,
+) -> Vec<FastForwardSpec> {
+    value
+        .split(',')
+        .filter_map(|part| {
+            let part = part.trim();
+            if part.is_empty() {
+                return None;
+            }
+            let (local_port, pod_port) = if let Some((l, p)) = part.split_once(':') {
+                let l: u16 = l.trim().parse().ok()?;
+                let p: u16 = p.trim().parse().ok()?;
+                (l, p)
+            } else {
+                let port: u16 = part.parse().ok()?;
+                (port, port)
+            };
+            Some(FastForwardSpec {
+                local_port,
+                pod_port,
+                target: target.to_owned(),
+                namespace: namespace.to_owned(),
+            })
+        })
+        .collect()
+}
+
+impl PortForwardManager {
+    /// Scan a list of pod/service metadata objects for the fast-forward
+    /// annotation and start any requested port-forwards that are not already
+    /// running.
+    ///
+    /// `resources` is a slice of `(name, namespace, annotations)` tuples
+    /// extracted from the live resource list.  Pass the pod/service
+    /// annotations map as a `HashMap<String, String>`.
+    ///
+    /// Returns a [`FastForwardResult`] summarising what was started, skipped,
+    /// or failed.
+    pub fn apply_fast_forwards(
+        &mut self,
+        resources: &[(String, String, std::collections::HashMap<String, String>)],
+    ) -> FastForwardResult {
+        let mut result = FastForwardResult::default();
+
+        for (name, namespace, annotations) in resources {
+            let Some(value) = annotations.get(FAST_FORWARD_ANNOTATION) else {
+                continue;
+            };
+
+            let specs = parse_fast_forward_annotation(value, name, namespace);
+            for spec in specs {
+                // Skip if an identical forward is already running.
+                let already_running = self.forwards.values().any(|e| {
+                    e.status == ForwardStatus::Running
+                        && e.pod == spec.target
+                        && e.namespace == spec.namespace
+                        && e.pod_port == spec.pod_port
+                        && e.local_port == spec.local_port
+                });
+
+                if already_running {
+                    tracing::debug!(
+                        target = %spec.target,
+                        namespace = %spec.namespace,
+                        local = spec.local_port,
+                        pod = spec.pod_port,
+                        "fast-forward already running — skipping"
+                    );
+                    result.skipped.push(spec);
+                    continue;
+                }
+
+                match self.add(&spec.namespace, &spec.target, spec.pod_port, spec.local_port) {
+                    Ok(_id) => {
+                        tracing::info!(
+                            target = %spec.target,
+                            namespace = %spec.namespace,
+                            local = spec.local_port,
+                            pod = spec.pod_port,
+                            "fast-forward started"
+                        );
+                        result.started.push(spec);
+                    }
+                    Err(e) => {
+                        tracing::warn!(
+                            target = %spec.target,
+                            namespace = %spec.namespace,
+                            local = spec.local_port,
+                            pod = spec.pod_port,
+                            error = %e,
+                            "fast-forward failed to start"
+                        );
+                        result.failed.push((spec, e.to_string()));
+                    }
+                }
+            }
+        }
+
+        result
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -395,5 +557,56 @@ mod tests {
         assert_eq!(ForwardStatus::Running.as_str(), "running");
         assert_eq!(ForwardStatus::Stopped.as_str(), "stopped");
         assert_eq!(ForwardStatus::Failed("x".into()).as_str(), "failed");
+    }
+
+    // ── Fast-forward annotation parsing ──────────────────────────────────────
+
+    #[test]
+    fn parse_single_port_pair() {
+        let specs = parse_fast_forward_annotation("8080:80", "nginx", "default");
+        assert_eq!(specs.len(), 1);
+        assert_eq!(specs[0].local_port, 8080);
+        assert_eq!(specs[0].pod_port, 80);
+        assert_eq!(specs[0].target, "nginx");
+        assert_eq!(specs[0].namespace, "default");
+    }
+
+    #[test]
+    fn parse_same_port_shorthand() {
+        let specs = parse_fast_forward_annotation("8080", "svc", "prod");
+        assert_eq!(specs.len(), 1);
+        assert_eq!(specs[0].local_port, 8080);
+        assert_eq!(specs[0].pod_port, 8080);
+    }
+
+    #[test]
+    fn parse_multiple_pairs_comma_separated() {
+        let specs = parse_fast_forward_annotation("8080:80,9090:90", "api", "ns1");
+        assert_eq!(specs.len(), 2);
+        assert_eq!(specs[0].local_port, 8080);
+        assert_eq!(specs[0].pod_port, 80);
+        assert_eq!(specs[1].local_port, 9090);
+        assert_eq!(specs[1].pod_port, 90);
+    }
+
+    #[test]
+    fn parse_empty_annotation_returns_empty() {
+        assert!(parse_fast_forward_annotation("", "x", "y").is_empty());
+    }
+
+    #[test]
+    fn parse_malformed_skips_bad_entries() {
+        // "notaport:80" should be skipped; "8080:80" should pass.
+        let specs = parse_fast_forward_annotation("notaport:80,8080:80", "svc", "ns");
+        assert_eq!(specs.len(), 1);
+        assert_eq!(specs[0].local_port, 8080);
+    }
+
+    #[test]
+    fn parse_whitespace_is_trimmed() {
+        let specs = parse_fast_forward_annotation(" 8080 : 80 ", "svc", "ns");
+        assert_eq!(specs.len(), 1);
+        assert_eq!(specs[0].local_port, 8080);
+        assert_eq!(specs[0].pod_port, 80);
     }
 }

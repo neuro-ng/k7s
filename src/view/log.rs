@@ -127,9 +127,9 @@ impl LogView {
         let visible = self.model.visible_lines().len();
         match key.code {
             KeyCode::Up | KeyCode::Char('k') => self.scroll_up(1),
-            KeyCode::Down | KeyCode::Char('j') => self.scroll_down(1, visible),
+            KeyCode::Down | KeyCode::Char('j') => self.scroll_down_bounded(1, visible),
             KeyCode::PageUp => self.scroll_up(20),
-            KeyCode::PageDown => self.scroll_down(20, visible),
+            KeyCode::PageDown => self.scroll_down_bounded(20, visible),
             KeyCode::Char('g') => self.scroll = 0,
             KeyCode::Char('G') => self.scroll_to_bottom(),
             KeyCode::Char('t') => {
@@ -225,11 +225,17 @@ impl LogView {
         LogAction::None
     }
 
-    fn scroll_up(&mut self, n: usize) {
+    pub fn scroll_up(&mut self, n: usize) {
         self.scroll = self.scroll.saturating_sub(n);
     }
 
-    fn scroll_down(&mut self, n: usize, visible: usize) {
+    pub fn scroll_down(&mut self, n: usize) {
+        let visible = self.model.visible_lines().len();
+        let max = visible.saturating_sub(1);
+        self.scroll = (self.scroll + n).min(max);
+    }
+
+    fn scroll_down_bounded(&mut self, n: usize, visible: usize) {
         let max = visible.saturating_sub(1);
         self.scroll = (self.scroll + n).min(max);
     }
