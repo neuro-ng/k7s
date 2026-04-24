@@ -355,9 +355,9 @@ mod tests {
         let (p50, p90, p99, min, max, _mean) = compute_stats(&samples);
         assert_eq!(min, 10);
         assert_eq!(max, 100);
-        assert!(p50 >= 50 && p50 <= 60);
-        assert!(p90 >= 90 && p90 <= 100);
-        assert!(p99 >= 90 && p99 <= 100);
+        assert!((50..=60).contains(&p50));
+        assert!((90..=100).contains(&p90));
+        assert!((90..=100).contains(&p99));
     }
 
     #[test]

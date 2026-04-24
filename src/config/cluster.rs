@@ -206,8 +206,10 @@ mod tests {
     #[test]
     fn round_trip_persist() {
         let dir = tempfile::tempdir().unwrap();
-        let mut cfg = ClusterConfig::default();
-        cfg.display_name = Some("My Cluster".to_owned());
+        let mut cfg = ClusterConfig {
+            display_name: Some("My Cluster".to_owned()),
+            ..Default::default()
+        };
         cfg.features.node_shell = true;
 
         cfg.save("prod", dir.path()).unwrap();
