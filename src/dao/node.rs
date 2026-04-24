@@ -61,7 +61,10 @@ impl NodeDao {
         if status.success() {
             Ok(())
         } else {
-            anyhow::bail!("kubectl drain {name} failed with exit code {:?}", status.code())
+            anyhow::bail!(
+                "kubectl drain {name} failed with exit code {:?}",
+                status.code()
+            )
         }
     }
 
@@ -73,11 +76,7 @@ impl NodeDao {
     ) -> anyhow::Result<()> {
         let patch = json!({"spec": {"unschedulable": unschedulable}});
         self.api(client)
-            .patch(
-                name,
-                &PatchParams::apply("k7s"),
-                &Patch::Merge(patch),
-            )
+            .patch(name, &PatchParams::apply("k7s"), &Patch::Merge(patch))
             .await?;
         Ok(())
     }

@@ -38,10 +38,7 @@ impl ConfigMapDao {
         name: &str,
     ) -> anyhow::Result<Vec<String>> {
         let cm = self.api(client, namespace).get(name).await?;
-        let keys = cm
-            .data
-            .map(|d| d.into_keys().collect())
-            .unwrap_or_default();
+        let keys = cm.data.map(|d| d.into_keys().collect()).unwrap_or_default();
         Ok(keys)
     }
 }
@@ -100,10 +97,7 @@ impl Describer for ConfigMapDao {
         let ns = namespace.unwrap_or("default");
         let cm = self.api(client, ns).get(name).await?;
         // Show only keys, not values (sanitizer rule).
-        let keys: Vec<String> = cm
-            .data
-            .map(|d| d.into_keys().collect())
-            .unwrap_or_default();
+        let keys: Vec<String> = cm.data.map(|d| d.into_keys().collect()).unwrap_or_default();
         Ok(format!(
             "ConfigMap: {name}\nNamespace: {ns}\nKeys ({}):\n  {}",
             keys.len(),

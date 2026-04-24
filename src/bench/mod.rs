@@ -97,7 +97,10 @@ impl BenchmarkResult {
     /// Multi-line report suitable for display in the TUI benchmark view.
     pub fn report(&self) -> String {
         let mut lines = vec![
-            format!("Requests:     {} total, {} successful, {} failed", self.total, self.successful, self.failed),
+            format!(
+                "Requests:     {} total, {} successful, {} failed",
+                self.total, self.successful, self.failed
+            ),
             format!("Throughput:   {:.2} req/s", self.rps),
             format!("Wall time:    {} ms", self.wall_ms),
             format!("Latency min:  {} ms", self.min_ms),

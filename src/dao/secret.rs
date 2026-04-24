@@ -53,9 +53,7 @@ impl SecretDao {
         name: &str,
     ) -> anyhow::Result<String> {
         let secret = self.api(client, namespace).get(name).await?;
-        Ok(secret
-            .type_
-            .unwrap_or_else(|| "Opaque".to_owned()))
+        Ok(secret.type_.unwrap_or_else(|| "Opaque".to_owned()))
     }
 }
 

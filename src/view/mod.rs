@@ -22,6 +22,7 @@ pub use browser::{
 };
 pub use describe::DescribeView;
 pub use dir::{DirAction, DirEntry, DirView, EntryKind};
+pub use expert::{build_expert_prompt, ExpertAction, ExpertAlert, ExpertPanel, FailureDetector};
 pub use help::{HelpAction, HelpView};
 pub use log::{LogAction, LogView};
 pub use metrics::{MetricsAction, MetricsView};
@@ -30,7 +31,4 @@ pub use pulse::{PulseAction, PulseView};
 pub use reference::{scan_pods_for_refs, ReferenceKind, UsageRef, UsedByView};
 pub use registrar::{view_for, ViewEntry};
 pub use workload::{build_workload_data, WorkloadAction, WorkloadEntry, WorkloadView};
-pub use expert::{
-    build_expert_prompt, ExpertAction, ExpertAlert, ExpertPanel, FailureDetector,
-};
 pub use xray::{build_xray_tree, demo_tree, NodeStatus, XRayAction, XRayNode, XRayView};

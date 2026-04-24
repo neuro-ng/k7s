@@ -20,10 +20,10 @@ mod ui;
 mod ai;
 mod bench;
 mod client;
-mod metrics;
 mod dao;
 mod exec;
 mod health;
+mod metrics;
 mod model;
 mod portforward;
 mod render;
@@ -293,15 +293,9 @@ enum Commands {
 #[derive(Subcommand, Debug)]
 enum RolloutAction {
     /// Show the status of a rollout.
-    Status {
-        resource: String,
-        name: String,
-    },
+    Status { resource: String, name: String },
     /// Perform a rolling restart of a workload.
-    Restart {
-        resource: String,
-        name: String,
-    },
+    Restart { resource: String, name: String },
     /// Roll back to the previous revision.
     Undo {
         resource: String,
@@ -311,20 +305,11 @@ enum RolloutAction {
         to_revision: Option<u64>,
     },
     /// Pause a rollout.
-    Pause {
-        resource: String,
-        name: String,
-    },
+    Pause { resource: String, name: String },
     /// Resume a paused rollout.
-    Resume {
-        resource: String,
-        name: String,
-    },
+    Resume { resource: String, name: String },
     /// List rollout history.
-    History {
-        resource: String,
-        name: String,
-    },
+    History { resource: String, name: String },
 }
 
 // ─── Entry point ─────────────────────────────────────────────────────────────
@@ -639,9 +624,7 @@ fn run_kubectl(
     let command_str = full.join(" ");
     tracing::info!(command = %command_str, "kubectl parity: running");
 
-    let status = std::process::Command::new("kubectl")
-        .args(&full)
-        .status();
+    let status = std::process::Command::new("kubectl").args(&full).status();
 
     let (exit_code, success) = match status {
         Ok(s) => (s.code().unwrap_or(1), s.success()),
@@ -681,9 +664,7 @@ fn replay_kubectl(
     let command_str = full.join(" ");
     tracing::info!(command = %command_str, "kubectl parity: replaying");
 
-    let status = std::process::Command::new("kubectl")
-        .args(&full)
-        .status();
+    let status = std::process::Command::new("kubectl").args(&full).status();
 
     let (exit_code, success) = match status {
         Ok(s) => (s.code().unwrap_or(1), s.success()),

@@ -704,7 +704,11 @@ impl App {
         // Handle cluster connection events.
         while let Ok(event) = self.cluster_event_rx.try_recv() {
             match event {
-                ClusterEvent::Connected { client, context, version } => {
+                ClusterEvent::Connected {
+                    client,
+                    context,
+                    version,
+                } => {
                     tracing::info!(ctx = %context, ver = %version, "cluster connected");
                     self.factory = Some(Arc::new(RwLock::new(WatcherFactory::new(client.clone()))));
                     self.kube_client = Some(client);
@@ -793,14 +797,13 @@ impl App {
 
         // Drain completed expert mode LLM recommendations.
         while let Ok((resource, namespace, summary_prefix, rec)) = self.expert_reply_rx.try_recv() {
-            self.expert.set_recommendation(&resource, &namespace, &summary_prefix, rec);
+            self.expert
+                .set_recommendation(&resource, &namespace, &summary_prefix, rec);
         }
 
         // Periodic expert rescan — fires every `expert_scan_interval` seconds.
         if self.expert_enabled && self.kube_client.is_some() {
-            let interval = Duration::from_secs(
-                self.config.k7s.expert_scan_interval.max(10) as u64,
-            );
+            let interval = Duration::from_secs(self.config.k7s.expert_scan_interval.max(10) as u64);
             let due = self
                 .last_expert_scan
                 .map(|t| t.elapsed() >= interval)
@@ -908,8 +911,7 @@ impl App {
             // Log-based analysis: fetch recent logs for each failing pod and
             // run the compressor before passing to FailureDetector::check_logs.
             for (pod_name, pod_ns) in failing_pods {
-                let log_text =
-                    fetch_compressed_logs(&client, &pod_ns, &pod_name, 200).await;
+                let log_text = fetch_compressed_logs(&client, &pod_ns, &pod_name, 200).await;
                 if let Some(alert) = FailureDetector::check_logs(&pod_name, &pod_ns, &log_text) {
                     let _ = tx.send(alert).await;
                 }
@@ -924,8 +926,7 @@ impl App {
             let tx = self.pulse_ready_tx.clone();
             let ns = self.namespace.clone();
             tokio::spawn(async move {
-                let summary =
-                    crate::health::build_cluster_summary(&client, ns.as_deref()).await;
+                let summary = crate::health::build_cluster_summary(&client, ns.as_deref()).await;
                 let _ = tx.send(summary).await;
             });
         }
@@ -964,8 +965,8 @@ async fn fetch_compressed_logs(
     tail_lines: i64,
 ) -> String {
     use k8s_openapi::api::core::v1::Pod;
-    use kube::Api;
     use kube::api::LogParams;
+    use kube::Api;
 
     let api: Api<Pod> = Api::namespaced(client.clone(), pod_ns);
     let params = LogParams {
@@ -1037,10 +1038,7 @@ fn build_provider(config: &Config) -> Option<Arc<dyn Provider>> {
                     .clone()
                     .unwrap_or_else(|| "https://api.openai.com/v1/chat/completions".to_owned()),
                 api_key,
-                model: ai
-                    .model
-                    .clone()
-                    .unwrap_or_else(|| "gpt-4o-mini".to_owned()),
+                model: ai.model.clone().unwrap_or_else(|| "gpt-4o-mini".to_owned()),
                 max_tokens: 2048,
                 temperature: 0.3,
             };
@@ -1084,9 +1082,7 @@ fn restore_terminal(
     Ok(())
 }
 
-fn setup_terminal(
-    enable_mouse: bool,
-) -> io::Result<Terminal<CrosstermBackend<io::Stdout>>> {
+fn setup_terminal(enable_mouse: bool) -> io::Result<Terminal<CrosstermBackend<io::Stdout>>> {
     terminal::enable_raw_mode()?;
     let mut stdout = io::stdout();
     execute!(stdout, terminal::EnterAlternateScreen)?;
@@ -1111,22 +1107,20 @@ async fn run_loop(
     let tx = app.cluster_event_tx.clone();
     tokio::spawn(async move {
         match ClientConfig::from_default_context().await {
-            Ok(cfg) => {
-                match cfg.check_connectivity().await {
-                    Ok(version) => {
-                        let _ = tx
-                            .send(ClusterEvent::Connected {
-                                client: cfg.client,
-                                context: cfg.context,
-                                version,
-                            })
-                            .await;
-                    }
-                    Err(e) => {
-                        let _ = tx.send(ClusterEvent::Error(e.to_string())).await;
-                    }
+            Ok(cfg) => match cfg.check_connectivity().await {
+                Ok(version) => {
+                    let _ = tx
+                        .send(ClusterEvent::Connected {
+                            client: cfg.client,
+                            context: cfg.context,
+                            version,
+                        })
+                        .await;
                 }
-            }
+                Err(e) => {
+                    let _ = tx.send(ClusterEvent::Error(e.to_string())).await;
+                }
+            },
             Err(e) => {
                 let _ = tx.send(ClusterEvent::Error(e.to_string())).await;
             }
@@ -1294,19 +1288,17 @@ fn handle_mouse_event(app: &mut App, mouse: crossterm::event::MouseEvent) {
                 }
             }
         }
-        MouseEventKind::ScrollDown => {
-            match app.mode {
-                Mode::Log => app.log.scroll_down(3),
-                Mode::Chat => app.chat.scroll_down(1),
-                _ => {
-                    if let Some(b) = &mut app.browser {
-                        b.down();
-                        b.down();
-                        b.down();
-                    }
+        MouseEventKind::ScrollDown => match app.mode {
+            Mode::Log => app.log.scroll_down(3),
+            Mode::Chat => app.chat.scroll_down(1),
+            _ => {
+                if let Some(b) = &mut app.browser {
+                    b.down();
+                    b.down();
+                    b.down();
                 }
             }
-        }
+        },
         MouseEventKind::Down(MouseButton::Left) => {
             // Left click: if in a browser, attempt to move cursor to the
             // clicked row.  The header occupies the first ~3 rows, and each
@@ -1999,7 +1991,10 @@ fn handle_key_event(app: &mut App, key: crossterm::event::KeyEvent) {
                     let _ = op_tx.send(OpResult::Ok(summary)).await;
                 });
             } else {
-                app.flash("Select a pod to scan its image".to_owned(), Duration::from_secs(2));
+                app.flash(
+                    "Select a pod to scan its image".to_owned(),
+                    Duration::from_secs(2),
+                );
             }
         }
         Action::Restart => {
@@ -2110,7 +2105,10 @@ fn dispatch_plugin_key(app: &mut App, key: &crossterm::event::KeyEvent) {
 
     if plugin.confirm {
         let expanded = plugin.expand_args(&ctx).join(" ");
-        let msg = format!("Run plugin '{plugin_name}'?\n  {} {}", plugin.command, expanded);
+        let msg = format!(
+            "Run plugin '{plugin_name}'?\n  {} {}",
+            plugin.command, expanded
+        );
         app.confirm_dialog = Some(ConfirmDialog::new("Run Plugin", msg));
         // Temporarily repurpose pending_delete to carry the plugin action.
         // We use a sentinel GVR prefix to distinguish it from a real delete.

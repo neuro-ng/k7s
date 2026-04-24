@@ -119,11 +119,7 @@ impl MetricsStore {
 
     /// Top N pods sorted by latest CPU usage (descending).
     pub fn top_pods_by_cpu(&self, n: usize) -> Vec<(&str, &ResourceHistory)> {
-        let mut entries: Vec<_> = self
-            .pods
-            .iter()
-            .map(|(k, h)| (k.as_str(), h))
-            .collect();
+        let mut entries: Vec<_> = self.pods.iter().map(|(k, h)| (k.as_str(), h)).collect();
         entries.sort_by(|a, b| {
             let a_cpu = a.1.latest().map(|s| s.cpu_m).unwrap_or(0);
             let b_cpu = b.1.latest().map(|s| s.cpu_m).unwrap_or(0);
@@ -135,11 +131,7 @@ impl MetricsStore {
 
     /// Top N nodes sorted by latest CPU usage (descending).
     pub fn top_nodes_by_cpu(&self, n: usize) -> Vec<(&str, &ResourceHistory)> {
-        let mut entries: Vec<_> = self
-            .nodes
-            .iter()
-            .map(|(k, h)| (k.as_str(), h))
-            .collect();
+        let mut entries: Vec<_> = self.nodes.iter().map(|(k, h)| (k.as_str(), h)).collect();
         entries.sort_by(|a, b| {
             let a_cpu = a.1.latest().map(|s| s.cpu_m).unwrap_or(0);
             let b_cpu = b.1.latest().map(|s| s.cpu_m).unwrap_or(0);
@@ -180,9 +172,7 @@ impl MetricsClient {
         snapshot
     }
 
-    async fn fetch_pod_metrics(
-        &self,
-    ) -> Result<HashMap<String, MetricSample>, anyhow::Error> {
+    async fn fetch_pod_metrics(&self) -> Result<HashMap<String, MetricSample>, anyhow::Error> {
         let ar = ApiResource {
             group: "metrics.k8s.io".into(),
             version: "v1beta1".into(),
@@ -208,9 +198,7 @@ impl MetricsClient {
         Ok(result)
     }
 
-    async fn fetch_node_metrics(
-        &self,
-    ) -> Result<HashMap<String, MetricSample>, anyhow::Error> {
+    async fn fetch_node_metrics(&self) -> Result<HashMap<String, MetricSample>, anyhow::Error> {
         let ar = ApiResource {
             group: "metrics.k8s.io".into(),
             version: "v1beta1".into(),
@@ -292,14 +280,8 @@ fn aggregate_containers(data: &Value) -> MetricSample {
 
 /// Parse a Kubernetes `{"cpu": "100m", "memory": "256Mi"}` usage object.
 fn parse_usage(usage: &Value) -> MetricSample {
-    let cpu_str = usage
-        .get("cpu")
-        .and_then(|v| v.as_str())
-        .unwrap_or("0");
-    let mem_str = usage
-        .get("memory")
-        .and_then(|v| v.as_str())
-        .unwrap_or("0");
+    let cpu_str = usage.get("cpu").and_then(|v| v.as_str()).unwrap_or("0");
+    let mem_str = usage.get("memory").and_then(|v| v.as_str()).unwrap_or("0");
 
     MetricSample {
         cpu_m: parse_cpu_to_millicores(cpu_str),
@@ -416,7 +398,10 @@ mod tests {
         let mut snap = MetricsSnapshot::default();
         snap.pods.insert(
             "default/my-pod".into(),
-            MetricSample { cpu_m: 200, mem_ki: 51200 },
+            MetricSample {
+                cpu_m: 200,
+                mem_ki: 51200,
+            },
         );
         store.ingest(&snap);
 
@@ -430,16 +415,19 @@ mod tests {
         let mut store = MetricsStore::new();
         for i in 0..=(HISTORY_LEN + 5) as u64 {
             let mut snap = MetricsSnapshot::default();
-            snap.pods.insert("ns/p".into(), MetricSample { cpu_m: i, mem_ki: i });
+            snap.pods.insert(
+                "ns/p".into(),
+                MetricSample {
+                    cpu_m: i,
+                    mem_ki: i,
+                },
+            );
             store.ingest(&snap);
         }
         let hist = store.pods.get("ns/p").unwrap();
         assert_eq!(hist.samples.len(), HISTORY_LEN);
         // Oldest values should have been evicted; latest is the last pushed.
-        assert_eq!(
-            hist.latest().unwrap().cpu_m,
-            (HISTORY_LEN + 5) as u64
-        );
+        assert_eq!(hist.latest().unwrap().cpu_m, (HISTORY_LEN + 5) as u64);
     }
 
     #[test]
@@ -447,7 +435,13 @@ mod tests {
         let mut store = MetricsStore::new();
         for (name, cpu) in &[("ns/a", 100u64), ("ns/b", 500), ("ns/c", 50)] {
             let mut snap = MetricsSnapshot::default();
-            snap.pods.insert(name.to_string(), MetricSample { cpu_m: *cpu, mem_ki: 0 });
+            snap.pods.insert(
+                name.to_string(),
+                MetricSample {
+                    cpu_m: *cpu,
+                    mem_ki: 0,
+                },
+            );
             store.ingest(&snap);
         }
         let top = store.top_pods_by_cpu(2);
@@ -459,7 +453,10 @@ mod tests {
     fn sparkline_data_order() {
         let mut hist = ResourceHistory::default();
         for i in 0..5u64 {
-            hist.push(MetricSample { cpu_m: i * 10, mem_ki: 0 });
+            hist.push(MetricSample {
+                cpu_m: i * 10,
+                mem_ki: 0,
+            });
         }
         let data = hist.cpu_sparkline();
         assert_eq!(data, vec![0, 10, 20, 30, 40]);

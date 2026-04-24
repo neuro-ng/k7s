@@ -148,9 +148,7 @@ impl DirView {
         let dir = if p.is_dir() {
             p.to_path_buf()
         } else {
-            p.parent()
-                .unwrap_or_else(|| Path::new("."))
-                .to_path_buf()
+            p.parent().unwrap_or_else(|| Path::new(".")).to_path_buf()
         };
         let mut view = Self {
             current_path: dir,
@@ -213,7 +211,11 @@ impl DirView {
                     _ => EntryKind::Unknown,
                 };
                 let size = meta.as_ref().and_then(|m| {
-                    if kind == EntryKind::File { Some(m.len()) } else { None }
+                    if kind == EntryKind::File {
+                        Some(m.len())
+                    } else {
+                        None
+                    }
                 });
                 let modified = meta.as_ref().and_then(|m| m.modified().ok());
                 DirEntry {
@@ -260,7 +262,9 @@ impl DirView {
             KeyCode::Down | KeyCode::Char('j') => {
                 let len = self.entries.len();
                 if len > 0 {
-                    let next = self.table_state.selected()
+                    let next = self
+                        .table_state
+                        .selected()
                         .map(|s| (s + 1).min(len - 1))
                         .unwrap_or(0);
                     self.table_state.select(Some(next));
@@ -268,7 +272,9 @@ impl DirView {
                 DirAction::None
             }
             KeyCode::Up | KeyCode::Char('k') => {
-                let next = self.table_state.selected()
+                let next = self
+                    .table_state
+                    .selected()
                     .map(|s| s.saturating_sub(1))
                     .unwrap_or(0);
                 self.table_state.select(Some(next));
@@ -309,7 +315,10 @@ impl DirView {
     fn render_path_bar(&self, frame: &mut Frame, area: Rect) {
         let text = if let Some(ref e) = self.error {
             Line::from(vec![
-                Span::styled("  Error: ", Style::default().fg(Color::Red).add_modifier(Modifier::BOLD)),
+                Span::styled(
+                    "  Error: ",
+                    Style::default().fg(Color::Red).add_modifier(Modifier::BOLD),
+                ),
                 Span::raw(e.as_str()),
             ])
         } else {
@@ -317,7 +326,9 @@ impl DirView {
                 Span::styled("  ", Style::default()),
                 Span::styled(
                     self.current_path.display().to_string(),
-                    Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD),
+                    Style::default()
+                        .fg(Color::Cyan)
+                        .add_modifier(Modifier::BOLD),
                 ),
                 Span::styled(
                     format!("  ({} entries)", self.entries.len()),
@@ -325,8 +336,7 @@ impl DirView {
                 ),
             ])
         };
-        let p = Paragraph::new(text)
-            .block(Block::default().borders(Borders::BOTTOM));
+        let p = Paragraph::new(text).block(Block::default().borders(Borders::BOTTOM));
         frame.render_widget(p, area);
     }
 
@@ -347,13 +357,13 @@ impl DirView {
                 Row::new(vec![
                     Cell::from(e.kind.glyph()).style(Style::default().fg(e.kind.color())),
                     Cell::from(e.name.as_str()).style(
-                        Style::default()
-                            .fg(e.kind.color())
-                            .add_modifier(if e.kind == EntryKind::Directory {
+                        Style::default().fg(e.kind.color()).add_modifier(
+                            if e.kind == EntryKind::Directory {
                                 Modifier::BOLD
                             } else {
                                 Modifier::empty()
-                            }),
+                            },
+                        ),
                     ),
                     Cell::from(e.size_label()),
                     Cell::from(e.modified_label()),
@@ -372,7 +382,11 @@ impl DirView {
         let table = Table::new(rows, widths)
             .header(header)
             .block(Block::default().borders(Borders::ALL).title(title))
-            .row_highlight_style(Style::default().bg(Color::DarkGray).add_modifier(Modifier::BOLD))
+            .row_highlight_style(
+                Style::default()
+                    .bg(Color::DarkGray)
+                    .add_modifier(Modifier::BOLD),
+            )
             .highlight_symbol("▶ ");
 
         frame.render_stateful_widget(table, area, &mut self.table_state);
@@ -386,7 +400,9 @@ impl DirView {
 
     /// Return the currently selected entry (if any).
     pub fn selected(&self) -> Option<&DirEntry> {
-        self.table_state.selected().and_then(|i| self.entries.get(i))
+        self.table_state
+            .selected()
+            .and_then(|i| self.entries.get(i))
     }
 }
 

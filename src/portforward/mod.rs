@@ -482,7 +482,12 @@ impl PortForwardManager {
                     continue;
                 }
 
-                match self.add(&spec.namespace, &spec.target, spec.pod_port, spec.local_port) {
+                match self.add(
+                    &spec.namespace,
+                    &spec.target,
+                    spec.pod_port,
+                    spec.local_port,
+                ) {
                     Ok(_id) => {
                         tracing::info!(
                             target = %spec.target,

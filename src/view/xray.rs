@@ -337,7 +337,11 @@ impl XRayView {
         // Branch connector for this node.
         if item.depth > 0 {
             spans.push(Span::styled(
-                if item.is_last { "└── " } else { "├── " },
+                if item.is_last {
+                    "└── "
+                } else {
+                    "├── "
+                },
                 Style::default().fg(Color::DarkGray),
             ));
         }
@@ -450,7 +454,13 @@ fn toggle_node_in(
         }
         if node.expanded
             && current_depth < target_depth
-            && toggle_node_in(&mut node.children, kind, name, target_depth, current_depth + 1)
+            && toggle_node_in(
+                &mut node.children,
+                kind,
+                name,
+                target_depth,
+                current_depth + 1,
+            )
         {
             return true;
         }
@@ -522,7 +532,11 @@ async fn build_xray_tree_inner(
         for d in &deployments {
             let uid = d.metadata.uid.clone().unwrap_or_default();
             let name = d.metadata.name.clone().unwrap_or_default();
-            let ready = d.status.as_ref().and_then(|s| s.ready_replicas).unwrap_or(0);
+            let ready = d
+                .status
+                .as_ref()
+                .and_then(|s| s.ready_replicas)
+                .unwrap_or(0);
             let desired = d.spec.as_ref().and_then(|s| s.replicas).unwrap_or(1);
             let status = if ready >= desired {
                 NodeStatus::Ok
@@ -533,7 +547,12 @@ async fn build_xray_tree_inner(
             };
             let idx = deploy_nodes.len();
             deploy_uid_to_idx.insert(uid, idx);
-            deploy_nodes.push(XRayNode::new("Deployment", name, format!("{ready}/{desired}"), status));
+            deploy_nodes.push(XRayNode::new(
+                "Deployment",
+                name,
+                format!("{ready}/{desired}"),
+                status,
+            ));
         }
 
         // ── ReplicaSet nodes ─────────────────────────────────────────────────
@@ -543,7 +562,11 @@ async fn build_xray_tree_inner(
         for rs in &replicasets {
             let uid = rs.metadata.uid.clone().unwrap_or_default();
             let name = rs.metadata.name.clone().unwrap_or_default();
-            let ready = rs.status.as_ref().and_then(|s| s.ready_replicas).unwrap_or(0);
+            let ready = rs
+                .status
+                .as_ref()
+                .and_then(|s| s.ready_replicas)
+                .unwrap_or(0);
             let total = rs.status.as_ref().map(|s| s.replicas).unwrap_or(0);
             let status = if total == 0 {
                 NodeStatus::Unknown
@@ -689,46 +712,113 @@ pub fn demo_tree() -> Vec<XRayNode> {
     vec![
         XRayNode::new("Namespace", "default", "", NodeStatus::Ok)
             .with_child(
-                XRayNode::new("Deployment", "nginx", "3/3", NodeStatus::Ok)
-                    .with_child(
-                        XRayNode::new("ReplicaSet", "nginx-6b7d4c9bdf", "3/3", NodeStatus::Ok)
-                            .with_child(
-                                XRayNode::new("Pod", "nginx-6b7d4c9bdf-xk7p2", "Running", NodeStatus::Ok)
-                                    .with_child(XRayNode::new("Container", "nginx", "1.27.0", NodeStatus::Ok))
+                XRayNode::new("Deployment", "nginx", "3/3", NodeStatus::Ok).with_child(
+                    XRayNode::new("ReplicaSet", "nginx-6b7d4c9bdf", "3/3", NodeStatus::Ok)
+                        .with_child(
+                            XRayNode::new(
+                                "Pod",
+                                "nginx-6b7d4c9bdf-xk7p2",
+                                "Running",
+                                NodeStatus::Ok,
                             )
-                            .with_child(
-                                XRayNode::new("Pod", "nginx-6b7d4c9bdf-m9r3t", "Running", NodeStatus::Ok)
-                                    .with_child(XRayNode::new("Container", "nginx", "1.27.0", NodeStatus::Ok))
+                            .with_child(XRayNode::new(
+                                "Container",
+                                "nginx",
+                                "1.27.0",
+                                NodeStatus::Ok,
+                            )),
+                        )
+                        .with_child(
+                            XRayNode::new(
+                                "Pod",
+                                "nginx-6b7d4c9bdf-m9r3t",
+                                "Running",
+                                NodeStatus::Ok,
                             )
-                            .with_child(
-                                XRayNode::new("Pod", "nginx-6b7d4c9bdf-w2qs8", "Pending", NodeStatus::Warning)
-                                    .with_child(XRayNode::new("Container", "nginx", "waiting", NodeStatus::Warning))
-                            ),
-                    ),
+                            .with_child(XRayNode::new(
+                                "Container",
+                                "nginx",
+                                "1.27.0",
+                                NodeStatus::Ok,
+                            )),
+                        )
+                        .with_child(
+                            XRayNode::new(
+                                "Pod",
+                                "nginx-6b7d4c9bdf-w2qs8",
+                                "Pending",
+                                NodeStatus::Warning,
+                            )
+                            .with_child(XRayNode::new(
+                                "Container",
+                                "nginx",
+                                "waiting",
+                                NodeStatus::Warning,
+                            )),
+                        ),
+                ),
             )
-            .with_child(XRayNode::new("Service", "nginx-svc", "ClusterIP:10.96.0.1", NodeStatus::Ok))
+            .with_child(XRayNode::new(
+                "Service",
+                "nginx-svc",
+                "ClusterIP:10.96.0.1",
+                NodeStatus::Ok,
+            ))
             .with_child(
-                XRayNode::new("Deployment", "api-server", "1/2", NodeStatus::Warning)
+                XRayNode::new("Deployment", "api-server", "1/2", NodeStatus::Warning).with_child(
+                    XRayNode::new(
+                        "ReplicaSet",
+                        "api-server-7c9fbd5f",
+                        "1/2",
+                        NodeStatus::Warning,
+                    )
                     .with_child(
-                        XRayNode::new("ReplicaSet", "api-server-7c9fbd5f", "1/2", NodeStatus::Warning)
-                            .with_child(
-                                XRayNode::new("Pod", "api-server-7c9fbd5f-abcd1", "Running", NodeStatus::Ok)
-                                    .with_child(XRayNode::new("Container", "api", "v2.3.1", NodeStatus::Ok))
-                            )
-                            .with_child(
-                                XRayNode::new("Pod", "api-server-7c9fbd5f-efgh2", "CrashLoopBackOff", NodeStatus::Error)
-                                    .with_child(XRayNode::new("Container", "api", "OOMKilled", NodeStatus::Error))
-                            ),
+                        XRayNode::new(
+                            "Pod",
+                            "api-server-7c9fbd5f-abcd1",
+                            "Running",
+                            NodeStatus::Ok,
+                        )
+                        .with_child(XRayNode::new(
+                            "Container",
+                            "api",
+                            "v2.3.1",
+                            NodeStatus::Ok,
+                        )),
+                    )
+                    .with_child(
+                        XRayNode::new(
+                            "Pod",
+                            "api-server-7c9fbd5f-efgh2",
+                            "CrashLoopBackOff",
+                            NodeStatus::Error,
+                        )
+                        .with_child(XRayNode::new(
+                            "Container",
+                            "api",
+                            "OOMKilled",
+                            NodeStatus::Error,
+                        )),
                     ),
+                ),
             ),
         XRayNode::new("Namespace", "kube-system", "", NodeStatus::Ok)
             .with_child(
-                XRayNode::new("Deployment", "coredns", "2/2", NodeStatus::Ok)
-                    .with_child(
-                        XRayNode::new("ReplicaSet", "coredns-787d4945fb", "2/2", NodeStatus::Ok)
-                            .with_child(XRayNode::new("Pod", "coredns-787d4945fb-abc12", "Running", NodeStatus::Ok))
-                            .with_child(XRayNode::new("Pod", "coredns-787d4945fb-def34", "Running", NodeStatus::Ok)),
-                    ),
+                XRayNode::new("Deployment", "coredns", "2/2", NodeStatus::Ok).with_child(
+                    XRayNode::new("ReplicaSet", "coredns-787d4945fb", "2/2", NodeStatus::Ok)
+                        .with_child(XRayNode::new(
+                            "Pod",
+                            "coredns-787d4945fb-abc12",
+                            "Running",
+                            NodeStatus::Ok,
+                        ))
+                        .with_child(XRayNode::new(
+                            "Pod",
+                            "coredns-787d4945fb-def34",
+                            "Running",
+                            NodeStatus::Ok,
+                        )),
+                ),
             )
             .with_child(XRayNode::new("Node", "node-1", "Ready", NodeStatus::Ok))
             .with_child(XRayNode::new("Node", "node-2", "Ready", NodeStatus::Ok)),

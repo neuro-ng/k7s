@@ -119,11 +119,7 @@ impl RoleDao {
     ) -> anyhow::Result<Vec<PolicyRule>> {
         let api: Api<Role> = Api::namespaced(client.clone(), namespace);
         let role = api.get(name).await?;
-        Ok(extract_role_rules(
-            name,
-            false,
-            role.rules.as_deref(),
-        ))
+        Ok(extract_role_rules(name, false, role.rules.as_deref()))
     }
 }
 
@@ -282,11 +278,7 @@ impl ClusterRoleDao {
     pub async fn rules(&self, client: &Client, name: &str) -> anyhow::Result<Vec<PolicyRule>> {
         let api: Api<ClusterRole> = Api::all(client.clone());
         let role = api.get(name).await?;
-        Ok(extract_role_rules(
-            name,
-            true,
-            role.rules.as_deref(),
-        ))
+        Ok(extract_role_rules(name, true, role.rules.as_deref()))
     }
 }
 

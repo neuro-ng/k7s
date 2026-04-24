@@ -235,17 +235,24 @@ pub fn parse_shortcut(s: &str) -> Option<(KeyCode, KeyModifiers)> {
 
     // Strip modifier prefixes (case-insensitive).
     loop {
-        if let Some(r) = rest.strip_prefix("Ctrl-").or_else(|| rest.strip_prefix("ctrl-")) {
+        if let Some(r) = rest
+            .strip_prefix("Ctrl-")
+            .or_else(|| rest.strip_prefix("ctrl-"))
+        {
             mods |= KeyModifiers::CONTROL;
             explicit_prefix = true;
             rest = r;
-        } else if let Some(r) =
-            rest.strip_prefix("Shift-").or_else(|| rest.strip_prefix("shift-"))
+        } else if let Some(r) = rest
+            .strip_prefix("Shift-")
+            .or_else(|| rest.strip_prefix("shift-"))
         {
             mods |= KeyModifiers::SHIFT;
             explicit_prefix = true;
             rest = r;
-        } else if let Some(r) = rest.strip_prefix("Alt-").or_else(|| rest.strip_prefix("alt-")) {
+        } else if let Some(r) = rest
+            .strip_prefix("Alt-")
+            .or_else(|| rest.strip_prefix("alt-"))
+        {
             mods |= KeyModifiers::ALT;
             explicit_prefix = true;
             rest = r;

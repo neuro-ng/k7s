@@ -256,7 +256,10 @@ impl FailureDetector {
                 AlertKind::Performance,
                 &involved,
                 &ns,
-                format!("Throttling detected: {}", &message[..message.len().min(100)]),
+                format!(
+                    "Throttling detected: {}",
+                    &message[..message.len().min(100)]
+                ),
             ));
         }
 
@@ -266,16 +269,14 @@ impl FailureDetector {
     /// Check compressed log output for repeated error patterns.
     ///
     /// `log_text` is the output of the log compressor, never raw logs.
-    pub fn check_logs(
-        pod_name: &str,
-        namespace: &str,
-        log_text: &str,
-    ) -> Option<ExpertAlert> {
+    pub fn check_logs(pod_name: &str, namespace: &str, log_text: &str) -> Option<ExpertAlert> {
         let error_lines: Vec<&str> = log_text
             .lines()
             .filter(|l| {
                 let lower = l.to_lowercase();
-                lower.contains("error") || lower.contains("exception") || lower.contains("panic")
+                lower.contains("error")
+                    || lower.contains("exception")
+                    || lower.contains("panic")
                     || lower.contains("fatal")
             })
             .take(5)
@@ -489,10 +490,7 @@ impl ExpertPanel {
     }
 
     fn render_list(&mut self, frame: &mut Frame, area: Rect) {
-        let header_area = Rect {
-            height: 1,
-            ..area
-        };
+        let header_area = Rect { height: 1, ..area };
         let list_area = Rect {
             y: area.y + 1,
             height: area.height.saturating_sub(2),
@@ -569,10 +567,8 @@ impl ExpertPanel {
         frame.render_stateful_widget(list, list_area, &mut self.list_state);
 
         // Footer hints
-        let footer = Paragraph::new(
-            " Enter: detail  d: dismiss  ↑↓: navigate  q/Esc: close",
-        )
-        .style(Style::default().fg(Color::DarkGray));
+        let footer = Paragraph::new(" Enter: detail  d: dismiss  ↑↓: navigate  q/Esc: close")
+            .style(Style::default().fg(Color::DarkGray));
         frame.render_widget(footer, footer_area);
     }
 
@@ -607,7 +603,10 @@ impl ExpertPanel {
                 alert.summary,
             )
         } else {
-            let rec = alert.recommendation.as_deref().unwrap_or("No recommendation available.");
+            let rec = alert
+                .recommendation
+                .as_deref()
+                .unwrap_or("No recommendation available.");
             format!(
                 "Detected: {}\n\nSummary:\n{}\n\n💡 Recommendation:\n{}",
                 alert.detected_at.format("%H:%M:%S UTC"),
@@ -776,7 +775,12 @@ mod tests {
     #[test]
     fn panel_dismiss_removes_alert() {
         let mut panel = ExpertPanel::new();
-        panel.push_alert(ExpertAlert::new(AlertKind::PodFailure, "web", "default", "crash"));
+        panel.push_alert(ExpertAlert::new(
+            AlertKind::PodFailure,
+            "web",
+            "default",
+            "crash",
+        ));
         panel.push_alert(ExpertAlert::new(AlertKind::LogSpam, "api", "ns", "errors"));
         panel.list_state.select(Some(0));
 
@@ -798,7 +802,12 @@ mod tests {
     #[test]
     fn set_recommendation_marks_not_pending() {
         let mut panel = ExpertPanel::new();
-        panel.push_alert(ExpertAlert::new(AlertKind::PodFailure, "pod-x", "ns", "CrashLoop"));
+        panel.push_alert(ExpertAlert::new(
+            AlertKind::PodFailure,
+            "pod-x",
+            "ns",
+            "CrashLoop",
+        ));
         panel.set_recommendation("pod-x", "ns", "CrashLoop", "Restart the deployment.".into());
         let alert = &panel.alerts[0];
         assert!(!alert.pending);
@@ -815,7 +824,12 @@ mod tests {
     #[test]
     fn r_key_in_detail_view_returns_rescan() {
         let mut panel = ExpertPanel::new();
-        panel.push_alert(ExpertAlert::new(AlertKind::PodFailure, "pod", "ns", "crash"));
+        panel.push_alert(ExpertAlert::new(
+            AlertKind::PodFailure,
+            "pod",
+            "ns",
+            "crash",
+        ));
         panel.list_state.select(Some(0));
         // Open the detail pane first.
         let enter = KeyEvent::from(KeyCode::Enter);

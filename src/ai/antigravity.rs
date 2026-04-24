@@ -169,7 +169,9 @@ fn adc_path() -> anyhow::Result<std::path::PathBuf> {
     }
     let base = dirs::config_dir()
         .ok_or_else(|| anyhow::anyhow!("cannot determine user config directory"))?;
-    Ok(base.join("gcloud").join("application_default_credentials.json"))
+    Ok(base
+        .join("gcloud")
+        .join("application_default_credentials.json"))
 }
 
 // ─── Vertex AI Gemini wire types ──────────────────────────────────────────────

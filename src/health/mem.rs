@@ -163,7 +163,7 @@ mod tests {
     #[test]
     fn heap_stats_labels_are_human_readable() {
         let stats = HeapStats {
-            vm_rss: 12 * 1_024 * 1_024,  // 12 MB
+            vm_rss: 12 * 1_024 * 1_024, // 12 MB
             vm_size: 100 * 1_024 * 1_024,
             vm_peak: 15 * 1_024 * 1_024,
             vm_data: 8 * 1_024 * 1_024,

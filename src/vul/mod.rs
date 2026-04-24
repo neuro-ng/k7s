@@ -116,10 +116,26 @@ pub struct VulReport {
 impl VulReport {
     /// Count entries by severity.
     pub fn count_by_severity(&self) -> (usize, usize, usize, usize) {
-        let crit = self.entries.iter().filter(|e| e.severity == Severity::Critical).count();
-        let high = self.entries.iter().filter(|e| e.severity == Severity::High).count();
-        let med  = self.entries.iter().filter(|e| e.severity == Severity::Medium).count();
-        let low  = self.entries.iter().filter(|e| e.severity == Severity::Low).count();
+        let crit = self
+            .entries
+            .iter()
+            .filter(|e| e.severity == Severity::Critical)
+            .count();
+        let high = self
+            .entries
+            .iter()
+            .filter(|e| e.severity == Severity::High)
+            .count();
+        let med = self
+            .entries
+            .iter()
+            .filter(|e| e.severity == Severity::Medium)
+            .count();
+        let low = self
+            .entries
+            .iter()
+            .filter(|e| e.severity == Severity::Low)
+            .count();
         (crit, high, med, low)
     }
 
@@ -131,7 +147,8 @@ impl VulReport {
         let (c, h, m, l) = self.count_by_severity();
         format!(
             "{}: {} CVEs  CRIT:{c} HIGH:{h} MED:{m} LOW:{l}",
-            self.image, self.entries.len()
+            self.image,
+            self.entries.len()
         )
     }
 }
@@ -222,9 +239,8 @@ impl VulnerabilityScanner {
             });
         }
 
-        let root: TrivyRoot = serde_json::from_slice(&output.stdout).unwrap_or(TrivyRoot {
-            results: vec![],
-        });
+        let root: TrivyRoot =
+            serde_json::from_slice(&output.stdout).unwrap_or(TrivyRoot { results: vec![] });
 
         let mut entries: Vec<VulEntry> = root
             .results
@@ -281,12 +297,19 @@ impl ImgScanView {
         if !report.entries.is_empty() {
             table_state.select(Some(0));
         }
-        Self { report, table_state }
+        Self {
+            report,
+            table_state,
+        }
     }
 
     /// Replace the current report (e.g. after a fresh scan).
     pub fn update(&mut self, report: VulReport) {
-        let sel = if report.entries.is_empty() { None } else { Some(0) };
+        let sel = if report.entries.is_empty() {
+            None
+        } else {
+            Some(0)
+        };
         self.report = report;
         self.table_state.select(sel);
     }
@@ -298,13 +321,21 @@ impl ImgScanView {
             KeyCode::Down | KeyCode::Char('j') => {
                 let len = self.report.entries.len();
                 if len > 0 {
-                    let next = self.table_state.selected().map(|s| (s + 1).min(len - 1)).unwrap_or(0);
+                    let next = self
+                        .table_state
+                        .selected()
+                        .map(|s| (s + 1).min(len - 1))
+                        .unwrap_or(0);
                     self.table_state.select(Some(next));
                 }
                 ImgScanAction::None
             }
             KeyCode::Up | KeyCode::Char('k') => {
-                let next = self.table_state.selected().map(|s| s.saturating_sub(1)).unwrap_or(0);
+                let next = self
+                    .table_state
+                    .selected()
+                    .map(|s| s.saturating_sub(1))
+                    .unwrap_or(0);
                 self.table_state.select(Some(next));
                 ImgScanAction::None
             }
@@ -330,14 +361,22 @@ impl ImgScanView {
     fn render_summary(&self, frame: &mut Frame, area: Rect) {
         let text = if let Some(ref e) = self.report.error {
             Line::from(vec![
-                Span::styled("  Scan error: ", Style::default().fg(Color::Red).add_modifier(Modifier::BOLD)),
+                Span::styled(
+                    "  Scan error: ",
+                    Style::default().fg(Color::Red).add_modifier(Modifier::BOLD),
+                ),
                 Span::raw(e.as_str()),
             ])
         } else {
             let (c, h, m, l) = self.report.count_by_severity();
             Line::from(vec![
                 Span::styled("  ", Style::default()),
-                Span::styled(&self.report.image, Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
+                Span::styled(
+                    &self.report.image,
+                    Style::default()
+                        .fg(Color::Cyan)
+                        .add_modifier(Modifier::BOLD),
+                ),
                 Span::raw("  "),
                 Span::styled(format!("CRIT:{c}"), Style::default().fg(Color::Red)),
                 Span::raw("  "),
@@ -349,8 +388,11 @@ impl ImgScanView {
                 Span::raw(format!("  total:{}", self.report.entries.len())),
             ])
         };
-        let p = Paragraph::new(text)
-            .block(Block::default().title(" Vulnerability Scan ").borders(Borders::ALL));
+        let p = Paragraph::new(text).block(
+            Block::default()
+                .title(" Vulnerability Scan ")
+                .borders(Borders::ALL),
+        );
         frame.render_widget(p, area);
     }
 
@@ -371,8 +413,11 @@ impl ImgScanView {
             .entries
             .iter()
             .map(|e| {
-                let sev_cell = Cell::from(e.severity.label())
-                    .style(Style::default().fg(e.severity.color()).add_modifier(Modifier::BOLD));
+                let sev_cell = Cell::from(e.severity.label()).style(
+                    Style::default()
+                        .fg(e.severity.color())
+                        .add_modifier(Modifier::BOLD),
+                );
                 Row::new(vec![
                     sev_cell,
                     Cell::from(e.id.as_str()),
@@ -396,7 +441,11 @@ impl ImgScanView {
         let table = Table::new(rows, widths)
             .header(header)
             .block(Block::default().borders(Borders::ALL).title(" CVEs "))
-            .row_highlight_style(Style::default().bg(Color::DarkGray).add_modifier(Modifier::BOLD))
+            .row_highlight_style(
+                Style::default()
+                    .bg(Color::DarkGray)
+                    .add_modifier(Modifier::BOLD),
+            )
             .highlight_symbol("▶ ");
 
         frame.render_stateful_widget(table, area, &mut self.table_state);

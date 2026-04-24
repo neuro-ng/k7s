@@ -10,7 +10,6 @@
 
 pub mod ai;
 pub mod bench;
-pub mod metrics;
 pub mod client;
 pub mod config;
 pub mod dao;
@@ -18,6 +17,7 @@ pub mod error;
 pub mod exec;
 pub mod health;
 pub mod history;
+pub mod metrics;
 pub mod model;
 pub mod portforward;
 pub mod render;

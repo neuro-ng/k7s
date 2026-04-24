@@ -108,8 +108,13 @@ impl MetricsView {
         };
 
         let header_line = Line::from(vec![
-            Span::styled(" k7s · Live Metrics", Style::default().add_modifier(Modifier::BOLD)),
-            Span::raw(format!(" — ctx:{ctx}  [{poll_label}]  ↑/↓ scroll · r refresh · Esc close")),
+            Span::styled(
+                " k7s · Live Metrics",
+                Style::default().add_modifier(Modifier::BOLD),
+            ),
+            Span::raw(format!(
+                " — ctx:{ctx}  [{poll_label}]  ↑/↓ scroll · r refresh · Esc close"
+            )),
         ]);
         frame.render_widget(Paragraph::new(header_line), chunks[0]);
 
@@ -125,18 +130,18 @@ impl MetricsView {
     }
 
     fn draw_nodes(&self, frame: &mut Frame, area: Rect, store: &MetricsStore) {
-        let block = Block::default()
-            .borders(Borders::ALL)
-            .title(Span::styled(" NODES ", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)));
+        let block = Block::default().borders(Borders::ALL).title(Span::styled(
+            " NODES ",
+            Style::default()
+                .fg(Color::Cyan)
+                .add_modifier(Modifier::BOLD),
+        ));
         let inner = block.inner(area);
         frame.render_widget(block, area);
 
         let nodes = store.top_nodes_by_cpu(TOP_NODES);
         if nodes.is_empty() {
-            frame.render_widget(
-                Paragraph::new(no_data_line()),
-                inner,
-            );
+            frame.render_widget(Paragraph::new(no_data_line()), inner);
             return;
         }
 
@@ -145,10 +150,11 @@ impl MetricsView {
         let available_height = inner.height as usize;
         let visible = (available_height / rows_per_node).min(nodes.len());
 
-        let constraints: Vec<Constraint> = std::iter::repeat(Constraint::Length(rows_per_node as u16))
-            .take(visible)
-            .chain(std::iter::once(Constraint::Min(0)))
-            .collect();
+        let constraints: Vec<Constraint> =
+            std::iter::repeat(Constraint::Length(rows_per_node as u16))
+                .take(visible)
+                .chain(std::iter::once(Constraint::Min(0)))
+                .collect();
 
         let node_areas = Layout::default()
             .direction(Direction::Vertical)
@@ -157,13 +163,14 @@ impl MetricsView {
 
         for (i, (key, hist)) in nodes.iter().enumerate().take(visible) {
             let latest = hist.latest();
-            let cpu_m = latest.map(|s: &crate::metrics::MetricSample| s.cpu_m).unwrap_or(0);
-            let mem_ki = latest.map(|s: &crate::metrics::MetricSample| s.mem_ki).unwrap_or(0);
+            let cpu_m = latest
+                .map(|s: &crate::metrics::MetricSample| s.cpu_m)
+                .unwrap_or(0);
+            let mem_ki = latest
+                .map(|s: &crate::metrics::MetricSample| s.mem_ki)
+                .unwrap_or(0);
 
-            let label = format!(
-                " {key}  cpu:{cpu_m}m  mem:{}",
-                format_ki(mem_ki)
-            );
+            let label = format!(" {key}  cpu:{cpu_m}m  mem:{}", format_ki(mem_ki));
 
             render_resource_block(
                 frame,
@@ -177,12 +184,12 @@ impl MetricsView {
     }
 
     fn draw_pods(&self, frame: &mut Frame, area: Rect, store: &MetricsStore) {
-        let block = Block::default()
-            .borders(Borders::ALL)
-            .title(Span::styled(
-                " PODS (top by CPU) ",
-                Style::default().fg(Color::Green).add_modifier(Modifier::BOLD),
-            ));
+        let block = Block::default().borders(Borders::ALL).title(Span::styled(
+            " PODS (top by CPU) ",
+            Style::default()
+                .fg(Color::Green)
+                .add_modifier(Modifier::BOLD),
+        ));
         let inner = block.inner(area);
         frame.render_widget(block, area);
 
@@ -191,10 +198,7 @@ impl MetricsView {
         let pods: Vec<_> = pods.into_iter().skip(self.scroll).collect();
 
         if pods.is_empty() {
-            frame.render_widget(
-                Paragraph::new(no_data_line()),
-                inner,
-            );
+            frame.render_widget(Paragraph::new(no_data_line()), inner);
             return;
         }
 
@@ -202,10 +206,11 @@ impl MetricsView {
         let available_height = inner.height as usize;
         let visible = (available_height / rows_per_pod).min(pods.len());
 
-        let constraints: Vec<Constraint> = std::iter::repeat(Constraint::Length(rows_per_pod as u16))
-            .take(visible)
-            .chain(std::iter::once(Constraint::Min(0)))
-            .collect();
+        let constraints: Vec<Constraint> =
+            std::iter::repeat(Constraint::Length(rows_per_pod as u16))
+                .take(visible)
+                .chain(std::iter::once(Constraint::Min(0)))
+                .collect();
 
         let pod_areas = Layout::default()
             .direction(Direction::Vertical)
@@ -214,13 +219,14 @@ impl MetricsView {
 
         for (i, (key, hist)) in pods.iter().enumerate().take(visible) {
             let latest = hist.latest();
-            let cpu_m = latest.map(|s: &crate::metrics::MetricSample| s.cpu_m).unwrap_or(0);
-            let mem_ki = latest.map(|s: &crate::metrics::MetricSample| s.mem_ki).unwrap_or(0);
+            let cpu_m = latest
+                .map(|s: &crate::metrics::MetricSample| s.cpu_m)
+                .unwrap_or(0);
+            let mem_ki = latest
+                .map(|s: &crate::metrics::MetricSample| s.mem_ki)
+                .unwrap_or(0);
 
-            let label = format!(
-                " {key}  cpu:{cpu_m}m  mem:{}",
-                format_ki(mem_ki)
-            );
+            let label = format!(" {key}  cpu:{cpu_m}m  mem:{}", format_ki(mem_ki));
 
             render_resource_block(
                 frame,
@@ -280,10 +286,7 @@ fn render_resource_block(
         .data(cpu_data)
         .max(cpu_max)
         .style(Style::default().fg(Color::Yellow))
-        .block(
-            Block::default()
-                .borders(Borders::NONE),
-        );
+        .block(Block::default().borders(Borders::NONE));
     frame.render_widget(cpu_sparkline, rows[1]);
 
     // Memory sparkline
@@ -369,7 +372,8 @@ mod tests {
     #[test]
     fn metrics_view_key_esc_closes() {
         let mut view = MetricsView::new();
-        let key = crossterm::event::KeyEvent::new(KeyCode::Esc, crossterm::event::KeyModifiers::NONE);
+        let key =
+            crossterm::event::KeyEvent::new(KeyCode::Esc, crossterm::event::KeyModifiers::NONE);
         let action = view.handle_key(&key);
         assert!(matches!(action, Some(MetricsAction::Close)));
     }
@@ -377,7 +381,10 @@ mod tests {
     #[test]
     fn metrics_view_key_r_refreshes() {
         let mut view = MetricsView::new();
-        let key = crossterm::event::KeyEvent::new(KeyCode::Char('r'), crossterm::event::KeyModifiers::NONE);
+        let key = crossterm::event::KeyEvent::new(
+            KeyCode::Char('r'),
+            crossterm::event::KeyModifiers::NONE,
+        );
         let action = view.handle_key(&key);
         assert!(matches!(action, Some(MetricsAction::Refresh)));
     }
@@ -385,7 +392,8 @@ mod tests {
     #[test]
     fn metrics_view_scroll() {
         let mut view = MetricsView::new();
-        let down = crossterm::event::KeyEvent::new(KeyCode::Down, crossterm::event::KeyModifiers::NONE);
+        let down =
+            crossterm::event::KeyEvent::new(KeyCode::Down, crossterm::event::KeyModifiers::NONE);
         view.handle_key(&down);
         assert_eq!(view.scroll, 1);
         let up = crossterm::event::KeyEvent::new(KeyCode::Up, crossterm::event::KeyModifiers::NONE);
