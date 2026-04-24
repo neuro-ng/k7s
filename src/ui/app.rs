@@ -1299,13 +1299,13 @@ fn handle_mouse_event(app: &mut App, mouse: crossterm::event::MouseEvent) {
                 }
             }
         },
-        MouseEventKind::Down(MouseButton::Left) => {
+        MouseEventKind::Down(MouseButton::Left)
             // Left click: if in a browser, attempt to move cursor to the
             // clicked row.  The header occupies the first ~3 rows, and each
             // data row is one line tall.  Subtract the header height (3) and
             // the top area offset (1 for the header bar) to compute the
             // approximate data-row index.
-            if app.mode == Mode::Browse {
+            if app.mode == Mode::Browse => {
                 if let Some(b) = &mut app.browser {
                     // row 0 = terminal top; rows 0-2 are header/crumbs/column.
                     // Approximate: click at row R corresponds to table row R - 4.
@@ -1313,7 +1313,6 @@ fn handle_mouse_event(app: &mut App, mouse: crossterm::event::MouseEvent) {
                     b.set_cursor(data_row);
                 }
             }
-        }
         _ => {}
     }
 }

@@ -165,11 +165,10 @@ impl LogView {
                     self.container_idx - 1
                 };
             }
-            KeyCode::Down | KeyCode::Char('j') => {
-                if !self.containers.is_empty() {
+            KeyCode::Down | KeyCode::Char('j')
+                if !self.containers.is_empty() => {
                     self.container_idx = (self.container_idx + 1) % self.containers.len();
                 }
-            }
             KeyCode::Enter => {
                 self.selector_visible = false;
                 if let Some(name) = self.current_container() {
@@ -215,11 +214,10 @@ impl LogView {
             KeyCode::Backspace => {
                 self.filter_input.pop();
             }
-            KeyCode::Char(c) => {
-                if !key.modifiers.contains(KeyModifiers::CONTROL) {
+            KeyCode::Char(c)
+                if !key.modifiers.contains(KeyModifiers::CONTROL) => {
                     self.filter_input.push(c);
                 }
-            }
             _ => {}
         }
         LogAction::None
