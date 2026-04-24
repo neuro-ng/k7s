@@ -1,4 +1,4 @@
-# k7s
+cargo # k7s
 
 **Performance-focused, security-first Kubernetes TUI with AI-powered cluster analysis.**
 
@@ -31,7 +31,7 @@ any LLM.
 
 ```bash
 # Prerequisites: Rust 1.77+, kubectl in $PATH
-git clone https://github.com/your-org/k7s
+git clone https://github.com/neuro-ng/k7s
 cd k7s
 cargo install --path .
 ```
@@ -42,7 +42,7 @@ cargo install --path .
 docker run --rm -it \
   -v "$HOME/.kube:/root/.kube:ro" \
   -v "$HOME/.config/k7s:/root/.config/k7s:ro" \
-  ghcr.io/your-org/k7s:latest
+  ghcr.io/neuro-ng/k7s:latest
 ```
 
 ---
