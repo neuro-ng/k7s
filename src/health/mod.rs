@@ -15,6 +15,100 @@ pub use mem::HeapStats;
 
 use serde_json::Value;
 
+// ─── Async cluster summary builder ───────────────────────────────────────────
+
+/// Fetch live cluster data and build a [`ClusterSummary`].
+///
+/// Queries pods, nodes, deployments, namespaces, and events in parallel.
+/// All resource API errors are swallowed so a partial failure still returns
+/// a useful summary.
+pub async fn build_cluster_summary(
+    client: &kube::Client,
+    namespace_filter: Option<&str>,
+) -> ClusterSummary {
+    use k8s_openapi::api::apps::v1::Deployment;
+    use k8s_openapi::api::core::v1::{Event, Namespace, Node, Pod};
+    use kube::Api;
+
+    let mut summary = ClusterSummary::new();
+
+    // Namespace count.
+    if namespace_filter.is_none() {
+        let count = Api::<Namespace>::all(client.clone())
+            .list(&Default::default())
+            .await
+            .map(|l| l.items.len())
+            .unwrap_or(0);
+        for _ in 0..count {
+            summary.add_namespace();
+        }
+    } else {
+        summary.add_namespace();
+    }
+
+    // Nodes (cluster-scoped).
+    let nodes = Api::<Node>::all(client.clone())
+        .list(&Default::default())
+        .await
+        .map(|l| l.items)
+        .unwrap_or_default();
+    for node in &nodes {
+        if let Ok(v) = serde_json::to_value(node) {
+            summary.add_node(&v);
+        }
+    }
+
+    // Pods.
+    let pod_api: Api<Pod> = match namespace_filter {
+        Some(ns) => Api::namespaced(client.clone(), ns),
+        None => Api::all(client.clone()),
+    };
+    let pods = pod_api
+        .list(&Default::default())
+        .await
+        .map(|l| l.items)
+        .unwrap_or_default();
+    for pod in &pods {
+        if let Ok(v) = serde_json::to_value(pod) {
+            summary.add_pod(&v);
+        }
+    }
+
+    // Deployments.
+    let deploy_api: Api<Deployment> = match namespace_filter {
+        Some(ns) => Api::namespaced(client.clone(), ns),
+        None => Api::all(client.clone()),
+    };
+    let deployments = deploy_api
+        .list(&Default::default())
+        .await
+        .map(|l| l.items)
+        .unwrap_or_default();
+    for deploy in &deployments {
+        if let Ok(v) = serde_json::to_value(deploy) {
+            summary.add_deployment(&v);
+        }
+    }
+
+    // Events.
+    let event_api: Api<Event> = match namespace_filter {
+        Some(ns) => Api::namespaced(client.clone(), ns),
+        None => Api::all(client.clone()),
+    };
+    let events = event_api
+        .list(&Default::default())
+        .await
+        .map(|l| l.items)
+        .unwrap_or_default();
+    for event in &events {
+        if let Ok(v) = serde_json::to_value(event) {
+            summary.add_event(&v);
+        }
+    }
+
+    summary
+}
+
 /// Counts of resources in a given state.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct StateCounts {

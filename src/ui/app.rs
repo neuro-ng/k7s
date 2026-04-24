@@ -13,6 +13,7 @@ use ratatui::widgets::{Block, Borders, Paragraph};
 use ratatui::Terminal;
 use tokio::sync::{mpsc, RwLock};
 
+use crate::ai::antigravity::{AntigravityConfig, AntigravityProvider};
 use crate::ai::api_client::{ApiKeyProvider, ApiKeyProviderConfig};
 use crate::ai::provider::{Provider, Role};
 use crate::ai::session::ChatSession;
@@ -28,11 +29,16 @@ use crate::ui::dialog::{
 };
 use crate::ui::key::{self, format_hints, Action, LIST_HINTS};
 use crate::ui::prompt::{Prompt, PromptSubmit};
+use kube::api::DynamicObject;
+use kube::runtime::reflector::Store;
+
+use crate::client::ClientConfig;
 use crate::metrics::{spawn_metrics_poller, MetricsSnapshot, MetricsStore, DEFAULT_POLL_INTERVAL};
 use crate::view::BrowserView;
 use crate::view::{
-    demo_tree, DirAction, DirView, HelpAction, HelpView, LogAction, LogView, MetricsAction,
-    MetricsView, PulseAction, PulseView, WorkloadAction, WorkloadView, XRayAction, XRayView,
+    build_expert_prompt, demo_tree, DirAction, DirView, ExpertAction, ExpertAlert, ExpertPanel,
+    FailureDetector, HelpAction, HelpView, LogAction, LogView, MetricsAction, MetricsView,
+    PulseAction, PulseView, WorkloadAction, WorkloadView, XRayAction, XRayView,
 };
 use crate::vul::{ImgScanAction, ImgScanView, VulReport, VulnerabilityScanner};
 use crate::watch::WatcherFactory;
@@ -83,6 +89,8 @@ enum Mode {
     Log,
     /// XRay resource-tree view is fullscreen.
     XRay,
+    /// Expert mode overlay is open (fullscreen).
+    Expert,
     /// Delete-confirmation overlay is open.
     Confirm,
     /// Scale-replica-count overlay is open.
@@ -97,6 +105,30 @@ enum Mode {
     Dir,
     /// Live metrics dashboard (sparklines for pods and nodes).
     Metrics,
+}
+
+/// Outcome of the background cluster connection attempt.
+enum ClusterEvent {
+    Connected {
+        client: kube::Client,
+        context: String,
+        version: String,
+    },
+    Error(String),
+}
+
+/// Carries the watcher store for a (GVR, namespace) back to the App.
+#[derive(Debug)]
+struct WatcherReady {
+    gvr: crate::client::Gvr,
+    store: Store<DynamicObject>,
+}
+
+/// Live workload data payload sent from the background fetch task.
+struct WorkloadData {
+    deployments: Vec<serde_json::Value>,
+    statefulsets: Vec<serde_json::Value>,
+    daemonsets: Vec<serde_json::Value>,
 }
 
 /// Result of a background cluster operation (delete / scale / restart).
@@ -186,6 +218,42 @@ pub struct App {
     /// Local filesystem directory browser.
     dir: DirView,
 
+    // ── Cluster connection ────────────────────────────────────────────────────
+    /// Receives the outcome of the background cluster connection attempt.
+    cluster_event_tx: mpsc::Sender<ClusterEvent>,
+    cluster_event_rx: mpsc::Receiver<ClusterEvent>,
+    /// Receives a watcher store once `factory.ensure()` completes for a resource.
+    watcher_ready_tx: mpsc::Sender<WatcherReady>,
+    watcher_ready_rx: mpsc::Receiver<WatcherReady>,
+
+    // ── XRay live tree ────────────────────────────────────────────────────────
+    /// Receives the live tree built by the background task.
+    xray_tree_tx: mpsc::Sender<Vec<crate::view::XRayNode>>,
+    xray_tree_rx: mpsc::Receiver<Vec<crate::view::XRayNode>>,
+
+    // ── Expert mode (Phase 21 / 22) ───────────────────────────────────────────
+    /// Expert mode panel widget.
+    expert: ExpertPanel,
+    /// Whether expert mode is currently active.
+    expert_enabled: bool,
+    /// Receives `(resource, namespace, summary_prefix, recommendation)` from
+    /// background LLM analysis tasks.
+    expert_reply_tx: mpsc::Sender<(String, String, String, String)>,
+    expert_reply_rx: mpsc::Receiver<(String, String, String, String)>,
+    /// Receives freshly detected alerts from the background watcher.
+    expert_alert_tx: mpsc::Sender<ExpertAlert>,
+    expert_alert_rx: mpsc::Receiver<ExpertAlert>,
+    /// When the last expert scan completed (used to drive the periodic rescan).
+    last_expert_scan: Option<Instant>,
+
+    // ── Pulse live summary ────────────────────────────────────────────────────
+    pulse_ready_tx: mpsc::Sender<crate::health::ClusterSummary>,
+    pulse_ready_rx: mpsc::Receiver<crate::health::ClusterSummary>,
+
+    // ── Workload live data ────────────────────────────────────────────────────
+    workload_ready_tx: mpsc::Sender<WorkloadData>,
+    workload_ready_rx: mpsc::Receiver<WorkloadData>,
+
     // ── Metrics (Phase 18) ────────────────────────────────────────────────────
     /// Live metrics dashboard view.
     metrics_view: MetricsView,
@@ -202,6 +270,9 @@ pub struct App {
     /// Receives the outcome of background delete/scale/restart tasks.
     op_result_tx: mpsc::Sender<OpResult>,
     op_result_rx: mpsc::Receiver<OpResult>,
+    /// Receives completed vulnerability scan reports so the ImgScanView can be updated.
+    vul_report_tx: mpsc::Sender<VulReport>,
+    vul_report_rx: mpsc::Receiver<VulReport>,
 
     // ── Config live-reload ────────────────────────────────────────────────────
     /// Receives `()` whenever the config file changes on disk.
@@ -224,6 +295,14 @@ impl App {
         let (ai_reply_tx, ai_reply_rx) = mpsc::channel(8);
         let (op_result_tx, op_result_rx) = mpsc::channel(8);
         let (metrics_tx, metrics_rx) = mpsc::channel(4);
+        let (cluster_event_tx, cluster_event_rx) = mpsc::channel(4);
+        let (watcher_ready_tx, watcher_ready_rx) = mpsc::channel(16);
+        let (vul_report_tx, vul_report_rx) = mpsc::channel(4);
+        let (xray_tree_tx, xray_tree_rx) = mpsc::channel(2);
+        let (pulse_ready_tx, pulse_ready_rx) = mpsc::channel(2);
+        let (workload_ready_tx, workload_ready_rx) = mpsc::channel(2);
+        let (expert_reply_tx, expert_reply_rx) = mpsc::channel(16);
+        let (expert_alert_tx, expert_alert_rx) = mpsc::channel(32);
 
         // Build the LLM provider from config if an API key is available.
         let chat_provider = build_provider(&config);
@@ -258,6 +337,7 @@ impl App {
             "xray",
             "vuln",
             "dir",
+            "expert",
             "metrics",
             "top",
             "retry",
@@ -289,6 +369,8 @@ impl App {
                 Err(_) => (None, None, None),
             };
 
+        let expert_mode_enabled = config.k7s.expert_mode;
+
         // Load plugin configuration from `~/.config/k7s/plugins.yaml`.
         let plugin_config = ConfigDirs::resolve()
             .ok()
@@ -319,11 +401,30 @@ impl App {
             pulse: PulseView::new(),
             workload: WorkloadView::new(),
             xray: XRayView::new(),
+            expert: ExpertPanel::new(),
+            expert_enabled: expert_mode_enabled,
+            expert_reply_tx,
+            expert_reply_rx,
+            expert_alert_tx,
+            expert_alert_rx,
+            last_expert_scan: None,
             chat: ChatWidget::new(),
             chat_session,
             chat_provider,
             ai_reply_tx,
             ai_reply_rx,
+            cluster_event_tx,
+            cluster_event_rx,
+            watcher_ready_tx,
+            watcher_ready_rx,
+            vul_report_tx,
+            vul_report_rx,
+            xray_tree_tx,
+            xray_tree_rx,
+            pulse_ready_tx,
+            pulse_ready_rx,
+            workload_ready_tx,
+            workload_ready_rx,
             metrics_view: MetricsView::new(),
             metrics_store: MetricsStore::new(),
             metrics_tx,
@@ -397,9 +498,8 @@ impl App {
                 true,
             );
             self.pulse = PulseView::new();
-            // Seed with an empty summary (real data flows via tick() once watchers are live).
-            self.pulse.update(ClusterSummary::default());
             self.mode = Mode::Pulse;
+            self.start_pulse_refresh();
             return;
         }
 
@@ -414,6 +514,7 @@ impl App {
             );
             self.workload = WorkloadView::new();
             self.mode = Mode::Workload;
+            self.start_workload_refresh();
             return;
         }
 
@@ -440,8 +541,33 @@ impl App {
                 true,
             );
             self.xray = XRayView::new();
+            // Show demo tree immediately; replace with live data when ready.
             self.xray.set_roots(demo_tree());
             self.mode = Mode::XRay;
+            // If we have a live client, build the real tree in the background.
+            if let Some(client) = self.kube_client.clone() {
+                let tx = self.xray_tree_tx.clone();
+                let ns = self.namespace.clone();
+                tokio::spawn(async move {
+                    let roots = crate::view::build_xray_tree(&client, ns.as_deref()).await;
+                    let _ = tx.send(roots).await;
+                });
+            }
+            return;
+        }
+
+        if matches!(alias, "expert") {
+            self.history.push(alias);
+            self.cmd_history.push(
+                HistorySource::Tui,
+                "navigate:expert",
+                None,
+                self.namespace.clone(),
+                true,
+            );
+            self.expert_enabled = true;
+            self.mode = Mode::Expert;
+            self.start_expert_scan();
             return;
         }
 
@@ -513,6 +639,8 @@ impl App {
                 true,
             );
             self.browser = Some(view);
+            // Start the watcher for this resource type if we're already connected.
+            self.start_browser_watcher();
         } else {
             self.flash(format!("Unknown resource: {alias}"), Duration::from_secs(3));
         }
@@ -573,10 +701,113 @@ impl App {
             }
         }
 
+        // Handle cluster connection events.
+        while let Ok(event) = self.cluster_event_rx.try_recv() {
+            match event {
+                ClusterEvent::Connected { client, context, version } => {
+                    tracing::info!(ctx = %context, ver = %version, "cluster connected");
+                    self.factory = Some(Arc::new(RwLock::new(WatcherFactory::new(client.clone()))));
+                    self.kube_client = Some(client);
+                    self.connection = ConnectionState::Connected { context, version };
+                    self.start_metrics_poller();
+                    // Start watcher for whatever view is currently active.
+                    self.start_browser_watcher();
+                    // Kick off expert scan if expert mode was pre-enabled (--expert flag).
+                    self.start_expert_scan();
+                }
+                ClusterEvent::Error(e) => {
+                    tracing::warn!(error = %e, "cluster connection failed");
+                    self.connection = ConnectionState::Error(e);
+                }
+            }
+        }
+
+        // Wire watcher stores to the active browser as they become ready.
+        while let Ok(ready) = self.watcher_ready_rx.try_recv() {
+            if let Some(b) = &mut self.browser {
+                if b.resource_gvr.as_ref() == Some(&ready.gvr) {
+                    b.set_store(ready.store);
+                }
+            }
+        }
+
+        // Auto-refresh browser table from live store every tick.
+        if let Some(b) = &mut self.browser {
+            b.refresh_auto();
+        }
+
+        // Drain completed vulnerability scan reports.
+        while let Ok(report) = self.vul_report_rx.try_recv() {
+            self.img_scan.update(report);
+        }
+
         // Drain incoming metrics snapshots.
         while let Ok(snapshot) = self.metrics_rx.try_recv() {
             self.metrics_store.ingest(&snapshot);
             self.metrics_view.on_metrics_updated();
+        }
+
+        // Drain XRay live tree results.
+        while let Ok(roots) = self.xray_tree_rx.try_recv() {
+            self.xray.set_roots(roots);
+        }
+
+        // Drain Pulse cluster summary.
+        while let Ok(summary) = self.pulse_ready_rx.try_recv() {
+            self.pulse.update(summary);
+        }
+
+        // Drain Workload live data.
+        while let Ok(data) = self.workload_ready_rx.try_recv() {
+            self.workload
+                .refresh(&data.deployments, &data.statefulsets, &data.daemonsets);
+        }
+
+        // Drain expert mode alerts detected by background watchers.
+        while let Ok(alert) = self.expert_alert_rx.try_recv() {
+            let resource = alert.resource.clone();
+            let namespace = alert.namespace.clone();
+            let summary = alert.summary.clone();
+            self.expert.push_alert(alert);
+
+            // Fire an async LLM analysis for this alert if a provider is ready.
+            if let Some(provider) = self.chat_provider.clone() {
+                let prompt = format!(
+                    "Kubernetes alert for {namespace}/{resource}: {summary}\n\n\
+                     Provide a concise (3-5 sentences) root cause analysis and \
+                     top 1-2 remediation steps with kubectl commands where applicable. \
+                     No markdown headers."
+                );
+                let tx = self.expert_reply_tx.clone();
+                tokio::spawn(async move {
+                    let messages = vec![crate::ai::provider::Message::user(prompt)];
+                    let result = provider.complete(&messages).await;
+                    let rec = match result {
+                        Ok(r) => r,
+                        Err(e) => format!("Analysis unavailable: {e}"),
+                    };
+                    let _ = tx.send((resource, namespace, summary, rec)).await;
+                });
+            }
+        }
+
+        // Drain completed expert mode LLM recommendations.
+        while let Ok((resource, namespace, summary_prefix, rec)) = self.expert_reply_rx.try_recv() {
+            self.expert.set_recommendation(&resource, &namespace, &summary_prefix, rec);
+        }
+
+        // Periodic expert rescan — fires every `expert_scan_interval` seconds.
+        if self.expert_enabled && self.kube_client.is_some() {
+            let interval = Duration::from_secs(
+                self.config.k7s.expert_scan_interval.max(10) as u64,
+            );
+            let due = self
+                .last_expert_scan
+                .map(|t| t.elapsed() >= interval)
+                .unwrap_or(false); // first scan is triggered by connect, not the timer
+            if due {
+                self.start_expert_scan();
+            }
         }
 
         // Drain pending AI replies.
@@ -597,6 +828,27 @@ impl App {
         }
     }
 
+    /// Spawn a background task that calls `factory.ensure(gvr, ns)` and sends
+    /// the resulting store back via `watcher_ready_tx` so `tick()` can wire it
+    /// to the active browser view.
+    pub fn start_browser_watcher(&mut self) {
+        let gvr = match self.browser.as_ref().and_then(|b| b.resource_gvr.clone()) {
+            Some(g) => g,
+            None => return,
+        };
+        let factory = match self.factory.clone() {
+            Some(f) => f,
+            None => return,
+        };
+        let namespace = self.namespace.clone();
+        let tx = self.watcher_ready_tx.clone();
+        tokio::spawn(async move {
+            let factory = factory.read().await;
+            let store = factory.ensure(&gvr, namespace.as_deref()).await;
+            let _ = tx.send(WatcherReady { gvr, store }).await;
+        });
+    }
+
     /// Start the background metrics poller using the live kube client.
     ///
     /// Safe to call multiple times — cancels any previous poller first.
@@ -614,37 +866,187 @@ impl App {
             tracing::debug!("metrics poller started");
         }
     }
+
+    /// Spawn a background expert scanner that polls pods, events, and pod logs
+    /// once, detects failures, and sends `ExpertAlert`s back via `expert_alert_tx`.
+    ///
+    /// Called when the cluster connects (if expert mode is enabled), on `r` key,
+    /// and periodically every `expert_scan_interval` seconds.
+    pub fn start_expert_scan(&mut self) {
+        if !self.expert_enabled {
+            return;
+        }
+        let client = match self.kube_client.clone() {
+            Some(c) => c,
+            None => return,
+        };
+        self.last_expert_scan = Some(Instant::now());
+        let tx = self.expert_alert_tx.clone();
+        let ns = self.namespace.clone();
+        tokio::spawn(async move {
+            // Scan pods for failure states and collect failing pod names for
+            // log-based analysis.
+            let mut failing_pods: Vec<(String, String)> = Vec::new(); // (name, namespace)
+            if let Ok(pods) = crate::dao::pod::list_pods(&client, ns.as_deref()).await {
+                for pod in &pods {
+                    if let Some(alert) = FailureDetector::check_pod(pod) {
+                        failing_pods.push((alert.resource.clone(), alert.namespace.clone()));
+                        let _ = tx.send(alert).await;
+                    }
+                }
+            }
+
+            // Scan events for throttling / eviction.
+            if let Ok(events) = crate::dao::event::list_events(&client, ns.as_deref()).await {
+                for ev in events {
+                    if let Some(alert) = FailureDetector::check_event(&ev) {
+                        let _ = tx.send(alert).await;
+                    }
+                }
+            }
+
+            // Log-based analysis: fetch recent logs for each failing pod and
+            // run the compressor before passing to FailureDetector::check_logs.
+            for (pod_name, pod_ns) in failing_pods {
+                let log_text =
+                    fetch_compressed_logs(&client, &pod_ns, &pod_name, 200).await;
+                if let Some(alert) = FailureDetector::check_logs(&pod_name, &pod_ns, &log_text) {
+                    let _ = tx.send(alert).await;
+                }
+            }
+        });
+    }
+
+    /// Spawn a background task that builds a live [`ClusterSummary`] and
+    /// sends it back via `pulse_ready_tx`.
+    pub fn start_pulse_refresh(&mut self) {
+        if let Some(client) = self.kube_client.clone() {
+            let tx = self.pulse_ready_tx.clone();
+            let ns = self.namespace.clone();
+            tokio::spawn(async move {
+                let summary =
+                    crate::health::build_cluster_summary(&client, ns.as_deref()).await;
+                let _ = tx.send(summary).await;
+            });
+        }
+    }
+
+    /// Spawn a background task that fetches live workload resources and
+    /// sends them back via `workload_ready_tx`.
+    pub fn start_workload_refresh(&mut self) {
+        if let Some(client) = self.kube_client.clone() {
+            let tx = self.workload_ready_tx.clone();
+            let ns = self.namespace.clone();
+            tokio::spawn(async move {
+                let (deployments, statefulsets, daemonsets) =
+                    crate::view::build_workload_data(&client, ns.as_deref()).await;
+                let _ = tx
+                    .send(WorkloadData {
+                        deployments,
+                        statefulsets,
+                        daemonsets,
+                    })
+                    .await;
+            });
+        }
+    }
+}
+
+// ─── Expert log helper ────────────────────────────────────────────────────────
+
+/// Fetch the last `tail_lines` log lines from the first container of `pod_name`
+/// in `pod_ns`, run them through the log compressor, and return the compressed
+/// text.  Returns an empty string on any error so callers can always proceed.
+async fn fetch_compressed_logs(
+    client: &kube::Client,
+    pod_ns: &str,
+    pod_name: &str,
+    tail_lines: i64,
+) -> String {
+    use k8s_openapi::api::core::v1::Pod;
+    use kube::Api;
+    use kube::api::LogParams;
+
+    let api: Api<Pod> = Api::namespaced(client.clone(), pod_ns);
+    let params = LogParams {
+        tail_lines: Some(tail_lines),
+        ..Default::default()
+    };
+    let raw = match api.logs(pod_name, &params).await {
+        Ok(s) => s,
+        Err(_) => return String::new(),
+    };
+
+    let lines: Vec<String> = raw.lines().map(|l| l.to_owned()).collect();
+    crate::sanitizer::log_compressor::compress(&lines, 100).to_prompt_string()
 }
 
 // ─── Provider construction ────────────────────────────────────────────────────
 
 fn build_provider(config: &Config) -> Option<Arc<dyn Provider>> {
     let ai = &config.k7s.ai;
-    // Use the API key from config, then fall back to the environment variable.
-    let api_key: String = ai
-        .api_key
-        .clone()
-        .filter(|k| !k.is_empty())
-        .or_else(|| std::env::var("K7S_LLM_API_KEY").ok())
-        .unwrap_or_default();
 
-    if api_key.is_empty() {
-        tracing::info!("No LLM API key configured — AI chat will be available in demo mode");
-        return None;
+    match ai.provider.as_str() {
+        "antigravity" => {
+            let project = ai
+                .gcp_project
+                .clone()
+                .filter(|p| !p.is_empty())
+                .or_else(|| std::env::var("GOOGLE_CLOUD_PROJECT").ok())
+                .unwrap_or_default();
+            let cfg = AntigravityConfig {
+                project,
+                region: ai
+                    .gcp_region
+                    .clone()
+                    .unwrap_or_else(|| crate::ai::antigravity::DEFAULT_REGION.to_owned()),
+                model: ai
+                    .model
+                    .clone()
+                    .unwrap_or_else(|| crate::ai::antigravity::DEFAULT_MODEL.to_owned()),
+                max_tokens: 2048,
+                temperature: 0.3,
+            };
+            tracing::info!(
+                project = %cfg.project,
+                region = %cfg.region,
+                model = %cfg.model,
+                "Antigravity provider configured (ADC auth)"
+            );
+            Some(Arc::new(AntigravityProvider::new(cfg)))
+        }
+        _ => {
+            // Default: API key provider (OpenAI-compatible).
+            let api_key: String = ai
+                .api_key
+                .clone()
+                .filter(|k| !k.is_empty())
+                .or_else(|| std::env::var("K7S_LLM_API_KEY").ok())
+                .unwrap_or_default();
+
+            if api_key.is_empty() {
+                tracing::info!(
+                    "No LLM API key configured — AI chat will be available in demo mode"
+                );
+                return None;
+            }
+
+            let cfg = ApiKeyProviderConfig {
+                endpoint: ai
+                    .endpoint
+                    .clone()
+                    .unwrap_or_else(|| "https://api.openai.com/v1/chat/completions".to_owned()),
+                api_key,
+                model: ai
+                    .model
+                    .clone()
+                    .unwrap_or_else(|| "gpt-4o-mini".to_owned()),
+                max_tokens: 2048,
+                temperature: 0.3,
+            };
+            Some(Arc::new(ApiKeyProvider::new(cfg)))
+        }
     }
-
-    let cfg = ApiKeyProviderConfig {
-        endpoint: ai
-            .endpoint
-            .clone()
-            .unwrap_or_else(|| "https://api.openai.com/v1/chat/completions".to_owned()),
-        api_key,
-        model: "gpt-4o-mini".to_owned(),
-        max_tokens: 2048,
-        temperature: 0.3,
-    };
-
-    Some(Arc::new(ApiKeyProvider::new(cfg)))
 }
 
 // ─── Entry point ──────────────────────────────────────────────────────────────
@@ -703,6 +1105,33 @@ async fn run_loop(
 
     // Start on the pods view by default.
     app.navigate("pods");
+
+    // Begin cluster connection in the background.
+    app.connection = ConnectionState::Connecting;
+    let tx = app.cluster_event_tx.clone();
+    tokio::spawn(async move {
+        match ClientConfig::from_default_context().await {
+            Ok(cfg) => {
+                match cfg.check_connectivity().await {
+                    Ok(version) => {
+                        let _ = tx
+                            .send(ClusterEvent::Connected {
+                                client: cfg.client,
+                                context: cfg.context,
+                                version,
+                            })
+                            .await;
+                    }
+                    Err(e) => {
+                        let _ = tx.send(ClusterEvent::Error(e.to_string())).await;
+                    }
+                }
+            }
+            Err(e) => {
+                let _ = tx.send(ClusterEvent::Error(e.to_string())).await;
+            }
+        }
+    });
 
     loop {
         app.tick();
@@ -813,6 +1242,8 @@ fn replay_tui_command(app: &mut App, cmd: &str) {
         let label = ns.as_deref().unwrap_or("(all)").to_owned();
         app.namespace = ns;
         app.flash(format!("Namespace: {label}"), Duration::from_secs(2));
+        // Restart the watcher with the new namespace filter.
+        app.start_browser_watcher();
         return;
     }
 
@@ -910,8 +1341,10 @@ fn handle_key_event(app: &mut App, key: crossterm::event::KeyEvent) {
     // ── Pulse view ────────────────────────────────────────────────────────────
     if app.mode == Mode::Pulse {
         let action = app.pulse.handle_key(&key);
-        if action == PulseAction::Close {
-            app.mode = Mode::Browse;
+        match action {
+            PulseAction::Close => app.mode = Mode::Browse,
+            PulseAction::Refresh => app.start_pulse_refresh(),
+            PulseAction::None => {}
         }
         return;
     }
@@ -919,8 +1352,10 @@ fn handle_key_event(app: &mut App, key: crossterm::event::KeyEvent) {
     // ── Workload view ─────────────────────────────────────────────────────────
     if app.mode == Mode::Workload {
         let action = app.workload.handle_key(&key);
-        if action == WorkloadAction::Close {
-            app.mode = Mode::Browse;
+        match action {
+            WorkloadAction::Close => app.mode = Mode::Browse,
+            WorkloadAction::Refresh => app.start_workload_refresh(),
+            WorkloadAction::None => {}
         }
         return;
     }
@@ -930,6 +1365,20 @@ fn handle_key_event(app: &mut App, key: crossterm::event::KeyEvent) {
         let action = app.xray.handle_key(&key);
         if action == XRayAction::Close {
             app.mode = Mode::Browse;
+        }
+        return;
+    }
+
+    // ── Expert mode overlay ───────────────────────────────────────────────────
+    if app.mode == Mode::Expert {
+        let action = app.expert.handle_key(&key);
+        match action {
+            ExpertAction::Close => app.mode = Mode::Browse,
+            ExpertAction::Rescan => {
+                app.start_expert_scan();
+                app.flash("Expert scan started…".to_owned(), Duration::from_secs(2));
+            }
+            ExpertAction::Dismiss | ExpertAction::SelectAlert(_) | ExpertAction::Noop => {}
         }
         return;
     }
@@ -974,7 +1423,6 @@ fn handle_key_event(app: &mut App, key: crossterm::event::KeyEvent) {
         match action {
             LogAction::Close => app.mode = Mode::Browse,
             LogAction::SwitchContainer(name) => {
-                app.log.pod_name = app.log.pod_name.clone();
                 app.flash(
                     format!("Switching to container: {name}"),
                     Duration::from_secs(2),
@@ -1197,6 +1645,7 @@ fn handle_key_event(app: &mut App, key: crossterm::event::KeyEvent) {
                     );
                     app.namespace = ns;
                     app.flash(format!("Namespace: {label}"), Duration::from_secs(2));
+                    app.start_browser_watcher();
                 }
                 PromptSubmit::Context(ctx) => {
                     // `:ctx <name>` — record intent and show flash.
@@ -1520,7 +1969,6 @@ fn handle_key_event(app: &mut App, key: crossterm::event::KeyEvent) {
             // Scan the image of the selected pod / container.
             let image = app.browser.as_ref().and_then(|b| {
                 b.selected_value().and_then(|v| {
-                    // Pod: /spec/containers/0/image
                     v.pointer("/spec/containers/0/image")
                         .or_else(|| v.pointer("/spec/template/spec/containers/0/image"))
                         .and_then(|img| img.as_str())
@@ -1528,15 +1976,17 @@ fn handle_key_event(app: &mut App, key: crossterm::event::KeyEvent) {
                 })
             });
             if let Some(img) = image {
-                let report = VulReport {
+                let placeholder = VulReport {
                     image: img.clone(),
-                    error: Some("Scanning… (results appear after trivy finishes)".to_owned()),
+                    error: Some("Scanning… (trivy running in background)".to_owned()),
                     ..VulReport::default()
                 };
-                app.img_scan = ImgScanView::new(report);
+                app.img_scan = ImgScanView::new(placeholder);
                 app.mode = Mode::ImgScan;
-                // Spawn the actual scan in the background; result delivered via op_result channel.
-                let tx = app.op_result_tx.clone();
+                app.flash(format!("Scanning {img}…"), Duration::from_secs(3));
+                // Spawn the actual scan; result updates ImgScanView via the dedicated channel.
+                let vul_tx = app.vul_report_tx.clone();
+                let op_tx = app.op_result_tx.clone();
                 tokio::spawn(async move {
                     let scanner = VulnerabilityScanner::new();
                     let report = scanner.scan(&img).await.unwrap_or_else(|e| VulReport {
@@ -1544,7 +1994,9 @@ fn handle_key_event(app: &mut App, key: crossterm::event::KeyEvent) {
                         error: Some(e.to_string()),
                         ..VulReport::default()
                     });
-                    let _ = tx.send(OpResult::Ok(report.summary())).await;
+                    let summary = report.summary();
+                    let _ = vul_tx.send(report).await;
+                    let _ = op_tx.send(OpResult::Ok(summary)).await;
                 });
             } else {
                 app.flash("Select a pod to scan its image".to_owned(), Duration::from_secs(2));
@@ -1585,6 +2037,16 @@ fn handle_key_event(app: &mut App, key: crossterm::event::KeyEvent) {
                         Duration::from_secs(2),
                     );
                 }
+            }
+        }
+        Action::Unhandled(crossterm::event::KeyCode::Char('X')) => {
+            // Toggle expert mode (Phase 21).
+            if app.expert_enabled && app.mode == Mode::Expert {
+                app.expert_enabled = false;
+                app.mode = Mode::Browse;
+            } else {
+                app.expert_enabled = true;
+                app.mode = Mode::Expert;
             }
         }
         _ => {
@@ -1800,6 +2262,7 @@ fn render_header(frame: &mut Frame, app: &App, area: Rect) {
         Mode::Pulse => "  [pulse]",
         Mode::Workload => "  [workload]",
         Mode::XRay => "  [xray]",
+        Mode::Expert => "  [expert]",
         Mode::Log => "  [logs]",
         Mode::Confirm => "  [delete?]",
         Mode::Scale => "  [scale]",
@@ -1823,8 +2286,19 @@ fn render_header(frame: &mut Frame, app: &App, area: Rect) {
         " "
     };
 
+    let expert_badge = if app.expert_enabled {
+        let count = app.expert.alert_count();
+        if count > 0 {
+            format!("  ⚡ EXPERT({count})")
+        } else {
+            "  ⚡ EXPERT".to_owned()
+        }
+    } else {
+        String::new()
+    };
+
     let title = Paragraph::new(format!(
-        " k7s  {}  {back_indicator} {breadcrumbs} {fwd_indicator}  ns:{ns_label}{mode_tag}",
+        " k7s  {}  {back_indicator} {breadcrumbs} {fwd_indicator}  ns:{ns_label}{mode_tag}{expert_badge}",
         env!("CARGO_PKG_VERSION"),
     ))
     .style(
@@ -1866,6 +2340,9 @@ fn render_main(frame: &mut Frame, app: &mut App, area: Rect) {
         Mode::XRay => {
             app.xray.render(frame, area);
         }
+        Mode::Expert => {
+            app.expert.render(frame, area, true);
+        }
         Mode::Log => {
             app.log.render(frame, area);
         }
@@ -1905,6 +2382,15 @@ fn render_footer(frame: &mut Frame, app: &App, area: Rect) {
     if app.mode == Mode::Pulse || app.mode == Mode::Workload {
         frame.render_widget(
             Paragraph::new("  q/Esc close").style(Style::default().fg(Color::DarkGray)),
+            area,
+        );
+        return;
+    }
+
+    if app.mode == Mode::Expert {
+        frame.render_widget(
+            Paragraph::new("  ↑↓ navigate  Enter detail  d dismiss  r rescan  Esc/q close")
+                .style(Style::default().fg(Color::DarkGray)),
             area,
         );
         return;

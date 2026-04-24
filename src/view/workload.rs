@@ -215,7 +215,69 @@ impl WorkloadEntry {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum WorkloadAction {
     Close,
+    /// `r` pressed — caller should trigger a data refresh.
+    Refresh,
     None,
+}
+
+// ─── Async data builder ───────────────────────────────────────────────────────
+
+/// Fetch live Deployments, StatefulSets, and DaemonSets and return them as
+/// raw JSON values suitable for [`WorkloadView::refresh`].
+pub async fn build_workload_data(
+    client: &kube::Client,
+    namespace_filter: Option<&str>,
+) -> (
+    Vec<serde_json::Value>,
+    Vec<serde_json::Value>,
+    Vec<serde_json::Value>,
+) {
+    use k8s_openapi::api::apps::v1::{DaemonSet, Deployment, StatefulSet};
+    use kube::Api;
+
+    let deploy_api: Api<Deployment> = match namespace_filter {
+        Some(ns) => Api::namespaced(client.clone(), ns),
+        None => Api::all(client.clone()),
+    };
+    let sts_api: Api<StatefulSet> = match namespace_filter {
+        Some(ns) => Api::namespaced(client.clone(), ns),
+        None => Api::all(client.clone()),
+    };
+    let ds_api: Api<DaemonSet> = match namespace_filter {
+        Some(ns) => Api::namespaced(client.clone(), ns),
+        None => Api::all(client.clone()),
+    };
+
+    let deployments = deploy_api
+        .list(&Default::default())
+        .await
+        .map(|l| l.items)
+        .unwrap_or_default();
+    let statefulsets = sts_api
+        .list(&Default::default())
+        .await
+        .map(|l| l.items)
+        .unwrap_or_default();
+    let daemonsets = ds_api
+        .list(&Default::default())
+        .await
+        .map(|l| l.items)
+        .unwrap_or_default();
+
+    let d: Vec<_> = deployments
+        .iter()
+        .filter_map(|x| serde_json::to_value(x).ok())
+        .collect();
+    let s: Vec<_> = statefulsets
+        .iter()
+        .filter_map(|x| serde_json::to_value(x).ok())
+        .collect();
+    let ds: Vec<_> = daemonsets
+        .iter()
+        .filter_map(|x| serde_json::to_value(x).ok())
+        .collect();
+
+    (d, s, ds)
 }
 
 /// Aggregated workload view.
@@ -286,6 +348,7 @@ impl WorkloadView {
     pub fn handle_key(&mut self, key: &KeyEvent) -> WorkloadAction {
         match key.code {
             KeyCode::Char('q') | KeyCode::Esc => WorkloadAction::Close,
+            KeyCode::Char('r') => WorkloadAction::Refresh,
             KeyCode::Up | KeyCode::Char('k') => {
                 self.table.up();
                 WorkloadAction::None

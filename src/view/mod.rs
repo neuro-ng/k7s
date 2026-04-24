@@ -6,6 +6,7 @@ pub mod actions;
 pub mod browser;
 pub mod describe;
 pub mod dir;
+pub mod expert;
 pub mod help;
 pub mod log;
 pub mod metrics;
@@ -28,5 +29,8 @@ pub use owner::{controller_owner, gvr_for_kind, resolve_owners, OwnerRef};
 pub use pulse::{PulseAction, PulseView};
 pub use reference::{scan_pods_for_refs, ReferenceKind, UsageRef, UsedByView};
 pub use registrar::{view_for, ViewEntry};
-pub use workload::{WorkloadAction, WorkloadEntry, WorkloadView};
-pub use xray::{demo_tree, NodeStatus, XRayAction, XRayNode, XRayView};
+pub use workload::{build_workload_data, WorkloadAction, WorkloadEntry, WorkloadView};
+pub use expert::{
+    build_expert_prompt, ExpertAction, ExpertAlert, ExpertPanel, FailureDetector,
+};
+pub use xray::{build_xray_tree, demo_tree, NodeStatus, XRayAction, XRayNode, XRayView};

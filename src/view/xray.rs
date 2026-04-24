@@ -29,6 +29,8 @@
 //! # k9s Reference
 //! `internal/view/xray.go`
 
+use std::collections::HashMap;
+
 use crossterm::event::{KeyCode, KeyEvent};
 use ratatui::{
     layout::{Alignment, Rect},
@@ -454,6 +456,227 @@ fn toggle_node_in(
         }
     }
     false
+}
+
+// ─── Live tree builder ────────────────────────────────────────────────────────
+
+/// Build a live resource tree from the cluster.  Falls back to [`demo_tree`]
+/// on error so the view always has something to display.
+pub async fn build_xray_tree(
+    client: &kube::Client,
+    namespace_filter: Option<&str>,
+) -> Vec<XRayNode> {
+    match build_xray_tree_inner(client, namespace_filter).await {
+        Ok(roots) if !roots.is_empty() => roots,
+        _ => demo_tree(),
+    }
+}
+
+async fn build_xray_tree_inner(
+    client: &kube::Client,
+    namespace_filter: Option<&str>,
+) -> anyhow::Result<Vec<XRayNode>> {
+    use k8s_openapi::api::apps::v1::{Deployment, ReplicaSet};
+    use k8s_openapi::api::core::v1::{Namespace, Pod, Service};
+    use kube::Api;
+
+    let namespaces: Vec<String> = if let Some(ns) = namespace_filter {
+        vec![ns.to_owned()]
+    } else {
+        let api: Api<Namespace> = Api::all(client.clone());
+        api.list(&Default::default())
+            .await?
+            .items
+            .into_iter()
+            .filter_map(|n| n.metadata.name)
+            .collect()
+    };
+
+    let mut roots = Vec::new();
+
+    for ns in &namespaces {
+        let pods = Api::<Pod>::namespaced(client.clone(), ns)
+            .list(&Default::default())
+            .await
+            .map(|l| l.items)
+            .unwrap_or_default();
+        let replicasets = Api::<ReplicaSet>::namespaced(client.clone(), ns)
+            .list(&Default::default())
+            .await
+            .map(|l| l.items)
+            .unwrap_or_default();
+        let deployments = Api::<Deployment>::namespaced(client.clone(), ns)
+            .list(&Default::default())
+            .await
+            .map(|l| l.items)
+            .unwrap_or_default();
+        let services = Api::<Service>::namespaced(client.clone(), ns)
+            .list(&Default::default())
+            .await
+            .map(|l| l.items)
+            .unwrap_or_default();
+
+        // ── Deployment nodes ──────────────────────────────────────────────────
+        let mut deploy_uid_to_idx: HashMap<String, usize> = HashMap::new();
+        let mut deploy_nodes: Vec<XRayNode> = Vec::new();
+        for d in &deployments {
+            let uid = d.metadata.uid.clone().unwrap_or_default();
+            let name = d.metadata.name.clone().unwrap_or_default();
+            let ready = d.status.as_ref().and_then(|s| s.ready_replicas).unwrap_or(0);
+            let desired = d.spec.as_ref().and_then(|s| s.replicas).unwrap_or(1);
+            let status = if ready >= desired {
+                NodeStatus::Ok
+            } else if ready > 0 {
+                NodeStatus::Warning
+            } else {
+                NodeStatus::Error
+            };
+            let idx = deploy_nodes.len();
+            deploy_uid_to_idx.insert(uid, idx);
+            deploy_nodes.push(XRayNode::new("Deployment", name, format!("{ready}/{desired}"), status));
+        }
+
+        // ── ReplicaSet nodes ─────────────────────────────────────────────────
+        // rs_uid → (deploy_node_idx, rs_child_idx_within_deploy)
+        let mut rs_uid_to_pos: HashMap<String, (usize, usize)> = HashMap::new();
+        let mut standalone_rs: Vec<XRayNode> = Vec::new();
+        for rs in &replicasets {
+            let uid = rs.metadata.uid.clone().unwrap_or_default();
+            let name = rs.metadata.name.clone().unwrap_or_default();
+            let ready = rs.status.as_ref().and_then(|s| s.ready_replicas).unwrap_or(0);
+            let total = rs.status.as_ref().map(|s| s.replicas).unwrap_or(0);
+            let status = if total == 0 {
+                NodeStatus::Unknown
+            } else if ready >= total {
+                NodeStatus::Ok
+            } else if ready > 0 {
+                NodeStatus::Warning
+            } else {
+                NodeStatus::Error
+            };
+            let rs_node = XRayNode::new("ReplicaSet", name, format!("{ready}/{total}"), status);
+
+            let owner_uid = rs
+                .metadata
+                .owner_references
+                .as_deref()
+                .and_then(|refs| refs.iter().find(|r| r.controller.unwrap_or(false)))
+                .map(|r| r.uid.clone());
+
+            if let Some(ouid) = owner_uid.as_deref().and_then(|u| deploy_uid_to_idx.get(u)) {
+                let d_idx = *ouid;
+                let rs_child_idx = deploy_nodes[d_idx].children.len();
+                rs_uid_to_pos.insert(uid, (d_idx, rs_child_idx));
+                deploy_nodes[d_idx].children.push(rs_node);
+            } else {
+                standalone_rs.push(rs_node);
+            }
+        }
+
+        // ── Pod nodes ─────────────────────────────────────────────────────────
+        let mut standalone_pods: Vec<XRayNode> = Vec::new();
+        for pod in &pods {
+            let name = pod.metadata.name.clone().unwrap_or_default();
+            let phase = pod
+                .status
+                .as_ref()
+                .and_then(|s| s.phase.as_deref())
+                .unwrap_or("Unknown");
+            let pod_status = match phase {
+                "Running" => NodeStatus::Ok,
+                "Pending" => NodeStatus::Warning,
+                "Failed" => NodeStatus::Error,
+                _ => NodeStatus::Unknown,
+            };
+
+            let containers: Vec<XRayNode> = pod
+                .spec
+                .as_ref()
+                .map(|s| {
+                    s.containers
+                        .iter()
+                        .map(|c| {
+                            let img = c.image.as_deref().unwrap_or("unknown");
+                            let short_img = img.rsplit('/').next().unwrap_or(img);
+                            XRayNode::new("Container", &c.name, short_img, NodeStatus::Unknown)
+                        })
+                        .collect()
+                })
+                .unwrap_or_default();
+
+            let mut pod_node = XRayNode::new("Pod", &name, phase, pod_status);
+            for c in containers {
+                pod_node.children.push(c);
+            }
+
+            let owner_uid = pod
+                .metadata
+                .owner_references
+                .as_deref()
+                .and_then(|refs| refs.iter().find(|r| r.controller.unwrap_or(false)))
+                .map(|r| r.uid.clone());
+
+            let attached = owner_uid
+                .as_deref()
+                .and_then(|ouid| rs_uid_to_pos.get(ouid))
+                .is_some();
+
+            if let Some(ouid) = &owner_uid {
+                if let Some(&(d_idx, rs_child_idx)) = rs_uid_to_pos.get(ouid) {
+                    deploy_nodes[d_idx].children[rs_child_idx]
+                        .children
+                        .push(pod_node);
+                    continue;
+                }
+            }
+            if !attached {
+                standalone_pods.push(pod_node);
+            }
+        }
+
+        // ── Service nodes ─────────────────────────────────────────────────────
+        let svc_nodes: Vec<XRayNode> = services
+            .iter()
+            .map(|s| {
+                let name = s.metadata.name.clone().unwrap_or_default();
+                let svc_type = s
+                    .spec
+                    .as_ref()
+                    .and_then(|sp| sp.type_.as_deref())
+                    .unwrap_or("ClusterIP");
+                XRayNode::new("Service", name, svc_type, NodeStatus::Ok)
+            })
+            .collect();
+
+        // ── Assemble namespace node ───────────────────────────────────────────
+        let ns_status = if deploy_nodes.iter().any(|d| d.status == NodeStatus::Error) {
+            NodeStatus::Error
+        } else if deploy_nodes.iter().any(|d| d.status == NodeStatus::Warning) {
+            NodeStatus::Warning
+        } else {
+            NodeStatus::Ok
+        };
+
+        let mut ns_node = XRayNode::new("Namespace", ns.as_str(), "", ns_status);
+        for d in deploy_nodes {
+            ns_node.children.push(d);
+        }
+        for rs in standalone_rs {
+            ns_node.children.push(rs);
+        }
+        for pod in standalone_pods {
+            ns_node.children.push(pod);
+        }
+        for svc in svc_nodes {
+            ns_node.children.push(svc);
+        }
+
+        if !ns_node.children.is_empty() || namespace_filter.is_some() {
+            roots.push(ns_node);
+        }
+    }
+
+    Ok(roots)
 }
 
 // ─── Demo tree builder ────────────────────────────────────────────────────────

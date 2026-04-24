@@ -7,6 +7,7 @@
 //! All data entering this module MUST have already passed through the
 //! sanitizer layer (`crate::sanitizer`). There are no exceptions.
 
+pub mod antigravity;
 pub mod api_client;
 pub mod prompt;
 pub mod provider;

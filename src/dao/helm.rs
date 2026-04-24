@@ -189,7 +189,6 @@ mod tests {
     fn helm_not_found_when_missing() {
         // Use a definitely-absent binary name to trigger NotFound.
         let mut cmd = Command::new("helm_definitely_not_installed_k7s_test");
-        let mut cmd = cmd;
         cmd.arg("version");
         let result = run_cmd(cmd);
         assert!(matches!(result, Err(HelmError::NotFound)));

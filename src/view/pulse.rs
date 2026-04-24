@@ -26,6 +26,8 @@ use crate::health::ClusterSummary;
 pub enum PulseAction {
     /// User pressed `q` / `Esc` — close the pulse view.
     Close,
+    /// `r` pressed — caller should trigger a data refresh.
+    Refresh,
     /// Key consumed, no action.
     None,
 }
@@ -50,6 +52,7 @@ impl PulseView {
     pub fn handle_key(&self, key: &KeyEvent) -> PulseAction {
         match key.code {
             KeyCode::Char('q') | KeyCode::Esc => PulseAction::Close,
+            KeyCode::Char('r') => PulseAction::Refresh,
             _ => PulseAction::None,
         }
     }

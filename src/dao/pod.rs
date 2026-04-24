@@ -167,6 +167,25 @@ impl Loggable for PodDao {
     }
 }
 
+/// List all pods in the given namespace (or all namespaces if `None`)
+/// as raw JSON values, suitable for passing to `FailureDetector`.
+pub async fn list_pods(
+    client: &Client,
+    namespace: Option<&str>,
+) -> anyhow::Result<Vec<serde_json::Value>> {
+    let api: Api<Pod> = match namespace {
+        Some(ns) => Api::namespaced(client.clone(), ns),
+        None => Api::all(client.clone()),
+    };
+    let list = api.list(&Default::default()).await?;
+    let values = list
+        .items
+        .into_iter()
+        .filter_map(|p| serde_json::to_value(p).ok())
+        .collect();
+    Ok(values)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -89,6 +89,11 @@ struct Cli {
     #[arg(long, global = true)]
     headless: bool,
 
+    /// Enable expert mode: automatically analyze pod failures, performance
+    /// issues, and log errors with AI-powered recommendations.
+    #[arg(long, global = true)]
+    expert: bool,
+
     #[command(subcommand)]
     command: Option<Commands>,
 }
@@ -339,6 +344,9 @@ fn main() -> anyhow::Result<()> {
     // CLI flags override config file values.
     if cli.readonly {
         cfg.k7s.read_only = true;
+    }
+    if cli.expert {
+        cfg.k7s.expert_mode = true;
     }
 
     tracing::debug!(

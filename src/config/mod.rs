@@ -90,6 +90,11 @@ pub struct K7sConfig {
     pub refresh_rate: u32,
     /// When true, no mutating operations (delete, scale, edit) are permitted.
     pub read_only: bool,
+    /// Enable expert mode on startup (automatic AI failure analysis).
+    pub expert_mode: bool,
+    /// How often (in seconds) the expert scanner rescans the cluster.
+    /// Minimum 10 s; default 60 s.
+    pub expert_scan_interval: u32,
     pub ui: UiConfig,
     pub logger: LoggerConfig,
     pub ai: AiConfig,
@@ -101,6 +106,8 @@ impl Default for K7sConfig {
         Self {
             refresh_rate: 2,
             read_only: false,
+            expert_mode: false,
+            expert_scan_interval: 60,
             ui: UiConfig::default(),
             logger: LoggerConfig::default(),
             ai: AiConfig::default(),
@@ -145,6 +152,15 @@ pub struct AiConfig {
     /// LLM API endpoint (for "api" provider).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub endpoint: Option<String>,
+    /// LLM model name (provider-specific).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub model: Option<String>,
+    /// GCP project ID for the Antigravity (Vertex AI) provider.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub gcp_project: Option<String>,
+    /// Vertex AI region for the Antigravity provider. Default: "us-central1".
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub gcp_region: Option<String>,
     pub token_budget: TokenBudgetConfig,
     pub sanitizer: SanitizerConfig,
 }
@@ -155,6 +171,9 @@ impl Default for AiConfig {
             provider: "api".to_string(),
             api_key: None,
             endpoint: None,
+            model: None,
+            gcp_project: None,
+            gcp_region: None,
             token_budget: TokenBudgetConfig::default(),
             sanitizer: SanitizerConfig::default(),
         }
@@ -314,5 +333,26 @@ k7s:
         let cfg = load(&path).unwrap();
         assert_eq!(cfg.k7s.refresh_rate, 5);
         assert!(cfg.k7s.read_only);
+    }
+
+    #[test]
+    fn default_expert_scan_interval_is_60() {
+        let cfg = Config::default();
+        assert_eq!(cfg.k7s.expert_scan_interval, 60);
+    }
+
+    #[test]
+    fn expert_scan_interval_is_configurable() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("config.yaml");
+        std::fs::write(&path, "k7s:\n  expertScanInterval: 120\n").unwrap();
+        let cfg = load(&path).unwrap();
+        assert_eq!(cfg.k7s.expert_scan_interval, 120);
+    }
+
+    #[test]
+    fn expert_mode_defaults_to_false() {
+        let cfg = Config::default();
+        assert!(!cfg.k7s.expert_mode);
     }
 }

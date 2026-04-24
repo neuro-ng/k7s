@@ -446,7 +446,7 @@ mod tests {
         std::fs::write(dir.path().join("alpha.txt"), b"hello").unwrap();
         std::fs::create_dir(dir.path().join("beta_dir")).unwrap();
 
-        let mut view = DirView::new(dir.path());
+        let view = DirView::new(dir.path());
         assert!(view.error.is_none());
         // Should have 2 entries.
         assert_eq!(view.entries.len(), 2);

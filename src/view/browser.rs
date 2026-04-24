@@ -33,8 +33,11 @@ pub struct BrowserView {
     pub table: TableWidget,
     /// Previous snapshot of object UIDs → resource version for delta tracking.
     prev_versions: HashMap<String, String>,
-    /// Raw JSON values parallel to `table.all_rows` — populated by `refresh_from_values`.
+    /// Raw JSON values parallel to `table.all_rows` — populated by both
+    /// `refresh_from_values` and `refresh_from_store`.
     raw_values: Vec<serde_json::Value>,
+    /// Live watcher store — set once the informer is established.
+    pub live_store: Option<Store<DynamicObject>>,
 }
 
 impl BrowserView {
@@ -55,6 +58,22 @@ impl BrowserView {
             table: TableWidget::new(columns),
             prev_versions: HashMap::new(),
             raw_values: Vec::new(),
+            live_store: None,
+        }
+    }
+
+    /// Attach a live watcher store to this browser.  After calling this the
+    /// view will refresh from the store automatically on every `refresh_auto()`.
+    pub fn set_store(&mut self, store: Store<DynamicObject>) {
+        self.live_store = Some(store);
+    }
+
+    /// If a live store is attached, refresh the table from it.  Otherwise no-op.
+    ///
+    /// Call this once per render tick from `App::tick()`.
+    pub fn refresh_auto(&mut self) {
+        if let Some(store) = self.live_store.clone() {
+            self.refresh_from_store(&store);
         }
     }
 
@@ -70,6 +89,7 @@ impl BrowserView {
 
         let mut new_versions: HashMap<String, String> = HashMap::new();
         let mut rows: Vec<TableRow> = Vec::with_capacity(objects.len());
+        let mut raw: Vec<serde_json::Value> = Vec::with_capacity(objects.len());
 
         for obj_arc in &objects {
             let uid = obj_arc
@@ -86,7 +106,7 @@ impl BrowserView {
 
             new_versions.insert(uid.clone(), rv.clone());
 
-            // Serialize to JSON for the renderer.
+            // Serialize to JSON for the renderer and for `selected_value()`.
             let value = match serde_json::to_value(obj_arc.as_ref()) {
                 Ok(v) => v,
                 Err(e) => {
@@ -108,12 +128,11 @@ impl BrowserView {
                 delta,
                 age_secs: rendered.age_secs,
             });
+            raw.push(value);
         }
 
-        // Mark UIDs that disappeared as Deleted (briefly shown, then removed).
-        // For now we just remove them; a future enhancement can keep them for one tick.
-
         self.prev_versions = new_versions;
+        self.raw_values = raw;
         self.table.set_rows(rows);
     }
 
