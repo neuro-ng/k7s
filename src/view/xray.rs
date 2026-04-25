@@ -241,11 +241,10 @@ impl XRayView {
         match key.code {
             KeyCode::Char('q') | KeyCode::Esc => return XRayAction::Close,
 
-            KeyCode::Up | KeyCode::Char('k')
-                if self.cursor > 0 => {
-                    self.cursor -= 1;
-                    self.ensure_cursor_visible();
-                }
+            KeyCode::Up | KeyCode::Char('k') if self.cursor > 0 => {
+                self.cursor -= 1;
+                self.ensure_cursor_visible();
+            }
             KeyCode::Down | KeyCode::Char('j') => {
                 let max = self.visible_count().saturating_sub(1);
                 if self.cursor < max {
