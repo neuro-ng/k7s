@@ -2,6 +2,7 @@ pub mod app;
 pub mod chat;
 pub mod dialog;
 pub mod key;
+pub mod logo_transition;
 pub mod prompt;
 pub mod splash;
 pub mod table;

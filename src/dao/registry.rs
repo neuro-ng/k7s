@@ -220,6 +220,58 @@ impl Registry {
             vec!["crd"],
             false,
         ));
+
+        // Autoscaling
+        self.register(ResourceMeta::new(
+            well_known::horizontal_pod_autoscalers(),
+            "HorizontalPodAutoscalers",
+            vec!["hpa"],
+            true,
+        ));
+
+        // Policy
+        self.register(ResourceMeta::new(
+            well_known::pod_disruption_budgets(),
+            "PodDisruptionBudgets",
+            vec!["pdb"],
+            true,
+        ));
+
+        // Core extras
+        self.register(ResourceMeta::new(
+            well_known::limit_ranges(),
+            "LimitRanges",
+            vec!["lr", "limitrange"],
+            true,
+        ));
+        self.register(ResourceMeta::new(
+            well_known::resource_quotas(),
+            "ResourceQuotas",
+            vec!["rq", "resourcequota"],
+            true,
+        ));
+        self.register(ResourceMeta::new(
+            well_known::endpoints(),
+            "Endpoints",
+            vec!["ep", "endpoints"],
+            true,
+        ));
+
+        // Storage
+        self.register(ResourceMeta::new(
+            well_known::storage_classes(),
+            "StorageClasses",
+            vec!["sc", "storageclass"],
+            false,
+        ));
+
+        // Discovery
+        self.register(ResourceMeta::new(
+            well_known::endpoint_slices(),
+            "EndpointSlices",
+            vec!["eps", "endpointslice"],
+            true,
+        ));
     }
 }
 

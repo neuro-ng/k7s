@@ -1,6 +1,8 @@
 //! Splash / welcome screen — Phase 5.9.
 //!
 //! Rendered when no browser view is active (no cluster connected, or first launch).
+//!
+//! Also exports the animated header logo frames used by the TUI header (Phase 25).
 
 use ratatui::{
     layout::{Alignment, Constraint, Direction, Layout, Rect},
@@ -10,7 +12,7 @@ use ratatui::{
     Frame,
 };
 
-/// ASCII-art logo lines for "k7s".
+/// ASCII-art logo lines for "k7s" — shown in the splash screen center.
 const LOGO: &[&str] = &[
     r" _    ______  ",
     r"| | _|___  /___",
@@ -18,6 +20,83 @@ const LOGO: &[&str] = &[
     r"|   <  / / \__ \",
     r"|_|\_\/_/  |___/",
 ];
+
+// ─── Animated header logo (Phase 25) ─────────────────────────────────────────
+
+/// Six animation frames for the k7s header logo.
+///
+/// Each frame is exactly 6 lines tall.  Frames cycle every ~800 ms in the
+/// main TUI header (upper-right corner), driven by `App::logo_frame`.
+///
+/// Cycle order: BOLD → ITALIC → TRANSITION → OUTLINE → SHADOW → GLOW → repeat.
+pub const LOGO_FRAMES: &[&[&str]] = &[
+    // ── Frame 0: BOLD ────────────────────────────────────────────────────────
+    &[
+        " ██╗  ██╗███████╗███████╗",
+        " ██║ ██╔╝╚════██║██╔════╝",
+        " █████╔╝     ██╔╝███████╗",
+        " ██╔═██╗    ██╔╝ ╚════██║",
+        " ██║  ██╗   ██║  ███████║",
+        " ╚═╝  ╚═╝   ╚═╝  ╚══════╝",
+    ],
+    // ── Frame 1: ITALIC ──────────────────────────────────────────────────────
+    &[
+        "      __   _______  ",
+        "     / /_ /__  / /____",
+        "    / //_/  / /  / ___/",
+        "   / , <   / /  (__  ) ",
+        "  / /| |  / /  /____/  ",
+        " /_/ |_| /_/            ",
+    ],
+    // ── Frame 2: TRANSITION (glitch) ─────────────────────────────────────────
+    &[
+        " ██▓  ██▒╗_____▒▓█████╗",
+        " ██▒ ██▓╝/ ___ ▒║█ ___/ ",
+        " ████▓╝    / /   █████▒ ",
+        " ██░═██   / /  ░╚════██░ ",
+        " ██▒  █▓ / /   ▓█████▓║  ",
+        " ╚░╝  ╚▒/_/    ╚░════░╝  ",
+    ],
+    // ── Frame 3: OUTLINE ─────────────────────────────────────────────────────
+    &[
+        " ┌─┐  ┌─┐ ┌───────┐ ┌───────┐",
+        " │ │ ┌┘ │ └──┐  ┌─┘ │ ┌─────┘",
+        " │ └─┘┌─┘   ┌┘ └┐   │ └────┐ ",
+        " │ ┌─┐└─┐  ┌┘  ┌┘   └────┐ │ ",
+        " │ │ └┐ │  │   │    ┌─────┘ │ ",
+        " └─┘  └─┘  └───┘    └───────┘ ",
+    ],
+    // ── Frame 4: SHADOW ──────────────────────────────────────────────────────
+    &[
+        " ██╗  ██╗███████╗███████╗         ",
+        " ██║ ██╔╝╚════██║██╔════╝         ",
+        " █████╔╝     ██╔╝███████╗  ░░░░░░░",
+        " ██╔═██╗    ██╔╝ ╚════██║ ░░░░░░░░",
+        " ██║  ██╗   ██║  ███████║░░░░░░░░░",
+        " ╚═╝  ╚═╝   ╚═╝  ╚══════╝░░░░░░░░░",
+    ],
+    // ── Frame 5: GLOW ────────────────────────────────────────────────────────
+    &[
+        "   ·  ██╗  ██╗███████╗███████╗  · ",
+        " ·   ██║ ██╔╝╚════██║██╔════╝   · ",
+        "  ·  █████╔╝     ██╔╝███████╗  ·  ",
+        " ·   ██╔═██╗    ██╔╝ ╚════██║   · ",
+        "  ·  ██║  ██╗   ██║  ███████║  ·  ",
+        " ·   ╚═╝  ╚═╝   ╚═╝  ╚══════╝   · ",
+    ],
+];
+
+/// Base foreground color for each logo frame.
+pub fn logo_frame_color(frame_idx: usize) -> Color {
+    match frame_idx % LOGO_FRAMES.len() {
+        0 => Color::Cyan,    // BOLD
+        1 => Color::Blue,    // ITALIC
+        2 => Color::Yellow,  // TRANSITION / glitch
+        3 => Color::White,   // OUTLINE
+        4 => Color::Cyan,    // SHADOW
+        _ => Color::Magenta, // GLOW
+    }
+}
 
 /// Render the splash screen into `area`.
 ///

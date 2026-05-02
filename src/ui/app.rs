@@ -15,6 +15,7 @@ use tokio::sync::{mpsc, RwLock};
 
 use crate::ai::antigravity::{AntigravityConfig, AntigravityProvider};
 use crate::ai::api_client::{ApiKeyProvider, ApiKeyProviderConfig};
+use crate::ai::context::{build_resource_context, ContextScope};
 use crate::ai::provider::{Provider, Role};
 use crate::ai::session::ChatSession;
 use crate::config::{Config, ConfigDirs, Plugin, PluginConfig, PluginContext};
@@ -36,9 +37,10 @@ use crate::client::ClientConfig;
 use crate::metrics::{spawn_metrics_poller, MetricsSnapshot, MetricsStore, DEFAULT_POLL_INTERVAL};
 use crate::view::BrowserView;
 use crate::view::{
-    build_expert_prompt, demo_tree, DirAction, DirView, ExpertAction, ExpertAlert, ExpertPanel,
-    FailureDetector, HelpAction, HelpView, LogAction, LogView, MetricsAction, MetricsView,
-    PulseAction, PulseView, WorkloadAction, WorkloadView, XRayAction, XRayView,
+    build_expert_prompt, chat_log_browser, demo_tree, pf_browser, suggestions_for_alert, DirAction,
+    DirView, ExpertAction, ExpertAlert, ExpertPanel, FailureDetector, HelpAction, HelpView,
+    LogAction, LogView, MetricsAction, MetricsView, PulseAction, PulseView, RemediationKind,
+    RemediationSuggestion, WorkloadAction, WorkloadView, XRayAction, XRayView,
 };
 use crate::vul::{ImgScanAction, ImgScanView, VulReport, VulnerabilityScanner};
 use crate::watch::WatcherFactory;
@@ -199,6 +201,8 @@ pub struct App {
     confirm_dialog: Option<ConfirmDialog>,
     /// Pending delete target: (gvr resource string, namespace, name).
     pending_delete: Option<(String, Option<String>, String)>,
+    /// Pending expert-mode remediation action awaiting confirmation.
+    pending_remediation: Option<RemediationSuggestion>,
     /// Active scale dialog.  `Some` only when `mode == Mode::Scale`.
     scale_dialog: Option<ScaleDialog>,
     /// Pending scale target: (gvr, namespace, name).
@@ -245,6 +249,25 @@ pub struct App {
     expert_alert_rx: mpsc::Receiver<ExpertAlert>,
     /// When the last expert scan completed (used to drive the periodic rescan).
     last_expert_scan: Option<Instant>,
+
+    // ── Contextual AI chat (Phase 24) ────────────────────────────────────────
+    /// Receives (SafeMetadata list, scope label) from background context builds.
+    context_ready_tx: mpsc::Sender<(Vec<crate::sanitizer::SafeMetadata>, ContextScope)>,
+    context_ready_rx: mpsc::Receiver<(Vec<crate::sanitizer::SafeMetadata>, ContextScope)>,
+
+    // ── Chat history (Phase 26) ───────────────────────────────────────────────
+    /// On-disk store for persisted AI chat sessions.
+    chat_log_store: crate::ai::chat_log::ChatLogStore,
+
+    // ── Animated header logo (Phase 25 + 27) ─────────────────────────────────
+    /// Current animation frame index (0–5, cycling through LOGO_FRAMES).
+    logo_frame: usize,
+    /// When the current frame was last advanced (used for 800 ms cadence).
+    logo_tick: Instant,
+    /// Cross-dissolve transition state (`None` = Phase-25 direct flip mode).
+    logo_transition: Option<crate::ui::logo_transition::TransitionState>,
+    /// Composite cell buffer for the cross-dissolve animation.
+    logo_buf: crate::ui::logo_transition::TransitionBuffer,
 
     // ── Pulse live summary ────────────────────────────────────────────────────
     pulse_ready_tx: mpsc::Sender<crate::health::ClusterSummary>,
@@ -303,15 +326,21 @@ impl App {
         let (workload_ready_tx, workload_ready_rx) = mpsc::channel(2);
         let (expert_reply_tx, expert_reply_rx) = mpsc::channel(16);
         let (expert_alert_tx, expert_alert_rx) = mpsc::channel(32);
+        let (context_ready_tx, context_ready_rx) = mpsc::channel(4);
 
         // Build the LLM provider from config if an API key is available.
         let chat_provider = build_provider(&config);
 
         // Always create a session — it works with any provider (or none, for offline testing).
-        let chat_session = Some(ChatSession::new(
-            &config.k7s.ai.token_budget,
-            &config.k7s.ai.sanitizer,
-        ));
+        let mut chat_session =
+            ChatSession::new(&config.k7s.ai.token_budget, &config.k7s.ai.sanitizer);
+
+        // Auto-restore the most recent persisted session on startup.
+        let chat_log_store = crate::ai::chat_log::ChatLogStore::default_store();
+        if let Some(recent) = chat_log_store.most_recent() {
+            chat_session.import_log(&recent);
+        }
+        let chat_session = Some(chat_session);
 
         let registry = Registry::with_builtins();
 
@@ -326,6 +355,11 @@ impl App {
         for cmd in &[
             "alias",
             "aliases",
+            "chats",
+            "chat-history",
+            "pf",
+            "portforward",
+            "portforwards",
             "ctx",
             "context",
             "ns",
@@ -421,6 +455,19 @@ impl App {
             vul_report_rx,
             xray_tree_tx,
             xray_tree_rx,
+            context_ready_tx,
+            context_ready_rx,
+            chat_log_store,
+            logo_frame: 0,
+            logo_tick: Instant::now(),
+            logo_transition: Some(crate::ui::logo_transition::TransitionState::Hold {
+                remaining: 8, // 8 ticks × 100 ms = 800 ms initial hold
+            }),
+            logo_buf: {
+                let mut buf = crate::ui::logo_transition::TransitionBuffer::new();
+                buf.load_frame(0);
+                buf
+            },
             pulse_ready_tx,
             pulse_ready_rx,
             workload_ready_tx,
@@ -433,6 +480,7 @@ impl App {
             log: LogView::new("", vec![]),
             confirm_dialog: None,
             pending_delete: None,
+            pending_remediation: None,
             scale_dialog: None,
             pending_scale: None,
             pf_dialog: None,
@@ -528,6 +576,32 @@ impl App {
                 true,
             );
             self.browser = Some(crate::view::alias_browser(&self.registry));
+            return;
+        }
+
+        if matches!(alias, "pf" | "portforward" | "portforwards") {
+            self.history.push("pf");
+            self.cmd_history.push(
+                HistorySource::Tui,
+                "navigate:pf",
+                None,
+                self.namespace.clone(),
+                true,
+            );
+            self.browser = Some(pf_browser(&self.pf_manager));
+            return;
+        }
+
+        if matches!(alias, "chats" | "chat-history") {
+            self.history.push("chats");
+            self.cmd_history.push(
+                HistorySource::Tui,
+                "navigate:chats",
+                None,
+                self.namespace.clone(),
+                true,
+            );
+            self.browser = Some(chat_log_browser(&self.chat_log_store));
             return;
         }
 
@@ -656,6 +730,30 @@ impl App {
     }
 
     fn tick(&mut self) {
+        // Advance the header logo cross-dissolve animation every tick (~100 ms).
+        {
+            use crate::ui::logo_transition::{step, TransitionState};
+            let speed = self.config.k7s.ui.logo_transition_speed;
+            let n_frames = crate::ui::splash::LOGO_FRAMES.len();
+            let next_frame = (self.logo_frame + 1) % n_frames;
+            if let Some(state) = self.logo_transition.take() {
+                let new_state = step(
+                    state,
+                    &mut self.logo_buf,
+                    self.logo_frame,
+                    next_frame,
+                    speed,
+                    8,
+                );
+                // When PlusDissolve completes, `step` loads frame_B and returns
+                // Hold { remaining: hold_ticks }.  At that point advance logo_frame.
+                if let TransitionState::Hold { remaining: 8 } = &new_state {
+                    self.logo_frame = next_frame;
+                }
+                self.logo_transition = Some(new_state);
+            }
+        }
+
         // Expire status messages.
         if let Some(expiry) = self.status_expiry {
             if Instant::now() >= expiry {
@@ -767,6 +865,26 @@ impl App {
                 .refresh(&data.deployments, &data.statefulsets, &data.daemonsets);
         }
 
+        // Drain contextual AI chat context builds (Phase 24).
+        while let Ok((metas, scope)) = self.context_ready_rx.try_recv() {
+            if let Some(session) = &mut self.chat_session {
+                session.clear_context();
+                for meta in metas {
+                    session.add_context(meta);
+                }
+            }
+            self.chat.set_scope(scope.label.clone());
+            // Inject an opening system message so the user knows context is loaded.
+            self.chat.push_message(
+                Role::System,
+                format!(
+                    "📎 Context loaded: {}\nAsk me anything about this resource.",
+                    scope.label
+                ),
+            );
+            self.mode = Mode::Chat;
+        }
+
         // Drain expert mode alerts detected by background watchers.
         while let Ok(alert) = self.expert_alert_rx.try_recv() {
             let resource = alert.resource.clone();
@@ -822,6 +940,11 @@ impl App {
                     // Persist in session history.
                     if let Some(session) = &mut self.chat_session {
                         session.history_push_assistant(text);
+                        // Auto-save after every completed exchange.
+                        let scope = self.chat.scope.clone();
+                        let mut log = session.export_log(scope);
+                        self.chat_log_store.save(&mut log);
+                        session.active_log_id = Some(log.id);
                     }
                 }
                 AiReply::Err(e) => {
@@ -1301,15 +1424,13 @@ fn handle_mouse_event(app: &mut App, mouse: crossterm::event::MouseEvent) {
         },
         MouseEventKind::Down(MouseButton::Left)
             // Left click: if in a browser, attempt to move cursor to the
-            // clicked row.  The header occupies the first ~3 rows, and each
-            // data row is one line tall.  Subtract the header height (3) and
-            // the top area offset (1 for the header bar) to compute the
-            // approximate data-row index.
+            // clicked row.  The header occupies 7 rows (6 logo + 1 border),
+            // and the browser adds ~2 more rows (title + column header).
+            // Approximate: click at row R corresponds to table row R - 9.
             if app.mode == Mode::Browse => {
                 if let Some(b) = &mut app.browser {
-                    // row 0 = terminal top; rows 0-2 are header/crumbs/column.
-                    // Approximate: click at row R corresponds to table row R - 4.
-                    let data_row = (mouse.row as usize).saturating_sub(4);
+                    // row 0 = terminal top; rows 0–8 are header + browser headers.
+                    let data_row = (mouse.row as usize).saturating_sub(9);
                     b.set_cursor(data_row);
                 }
             }
@@ -1368,6 +1489,9 @@ fn handle_key_event(app: &mut App, key: crossterm::event::KeyEvent) {
             ExpertAction::Rescan => {
                 app.start_expert_scan();
                 app.flash("Expert scan started…".to_owned(), Duration::from_secs(2));
+            }
+            ExpertAction::Remediate(suggestion) => {
+                handle_expert_remediation(app, suggestion);
             }
             ExpertAction::Dismiss | ExpertAction::SelectAlert(_) | ExpertAction::Noop => {}
         }
@@ -1431,6 +1555,7 @@ fn handle_key_event(app: &mut App, key: crossterm::event::KeyEvent) {
         match action {
             ChatAction::Close => {
                 app.mode = Mode::Browse;
+                app.chat.clear_scope();
             }
             ChatAction::Submit(text) => {
                 submit_chat_message(app, text);
@@ -1515,6 +1640,14 @@ fn handle_key_event(app: &mut App, key: crossterm::event::KeyEvent) {
         if let Some(dlg) = &app.confirm_dialog {
             match dlg.handle_key(key.code) {
                 ConfirmAction::Yes => {
+                    // ── Expert remediation confirm ────────────────────────────
+                    if let Some(remediation) = app.pending_remediation.take() {
+                        app.confirm_dialog = None;
+                        app.mode = Mode::Expert;
+                        execute_remediation(app, remediation);
+                        return;
+                    }
+
                     let target = app.pending_delete.take();
                     app.confirm_dialog = None;
                     app.mode = Mode::Browse;
@@ -1559,10 +1692,16 @@ fn handle_key_event(app: &mut App, key: crossterm::event::KeyEvent) {
                     }
                 }
                 ConfirmAction::No => {
+                    let was_remediation = app.pending_remediation.is_some();
                     app.confirm_dialog = None;
                     app.pending_delete = None;
                     app.pending_foreground_plugin = None;
-                    app.mode = Mode::Browse;
+                    app.pending_remediation = None;
+                    app.mode = if was_remediation {
+                        Mode::Expert
+                    } else {
+                        Mode::Browse
+                    };
                 }
                 ConfirmAction::None => {}
             }
@@ -1769,6 +1908,57 @@ fn handle_key_event(app: &mut App, key: crossterm::event::KeyEvent) {
                 );
             }
         }
+        // ── AI Analyse (Phase 24) ─────────────────────────────────────────────
+        Action::AiAnalyse => {
+            if let Some(client) = app.kube_client.clone() {
+                if let Some(browser) = &app.browser {
+                    if let (Some(raw), Some(name)) =
+                        (browser.selected_value(), browser.selected_name())
+                    {
+                        let gvr =
+                            browser
+                                .resource_gvr
+                                .clone()
+                                .unwrap_or_else(|| crate::client::Gvr {
+                                    group: String::new(),
+                                    version: "v1".to_owned(),
+                                    resource: "resources".to_owned(),
+                                });
+                        let namespace = browser.selected_namespace();
+                        let sanitizer_cfg = app.config.k7s.ai.sanitizer.clone();
+                        let tx = app.context_ready_tx.clone();
+                        let name2 = name.clone();
+                        tokio::spawn(async move {
+                            let (metas, scope) = build_resource_context(
+                                &client,
+                                &gvr,
+                                &name2,
+                                namespace.as_deref(),
+                                raw,
+                                &sanitizer_cfg,
+                            )
+                            .await;
+                            let _ = tx.send((metas, scope)).await;
+                        });
+                        app.flash(
+                            format!("Building AI context for {name}…"),
+                            Duration::from_secs(2),
+                        );
+                    } else {
+                        app.flash("Select a resource first".to_owned(), Duration::from_secs(2));
+                    }
+                }
+            } else {
+                // No cluster — open chat in demo mode without injected context.
+                app.mode = Mode::Chat;
+                if app.chat.messages.is_empty() {
+                    app.chat.push_message(
+                        Role::System,
+                        "No cluster connected — context injection unavailable.".to_owned(),
+                    );
+                }
+            }
+        }
         Action::Enter => {
             // Drill into sub-resource: Enter on a pod row opens the container view.
             use crate::client::gvr::well_known;
@@ -1831,6 +2021,18 @@ fn handle_key_event(app: &mut App, key: crossterm::event::KeyEvent) {
             }
         }
         Action::Delete => {
+            // Special case: PortForwards browser — kill the selected forward.
+            if app.browser.as_ref().map(|b| b.title.as_str()) == Some("PortForwards") {
+                if let Some(id_str) = app.browser.as_ref().and_then(|b| b.selected_name()) {
+                    app.pf_manager.remove_by_id_str(&id_str);
+                    app.browser = Some(pf_browser(&app.pf_manager));
+                    app.flash(
+                        format!("Killed port-forward {id_str}"),
+                        Duration::from_secs(2),
+                    );
+                }
+                return;
+            }
             if let Some(browser) = &app.browser {
                 if let Some(name) = browser.selected_name() {
                     let ns = browser
@@ -2187,6 +2389,85 @@ fn submit_chat_message(app: &mut App, text: String) {
     });
 }
 
+// ─── Expert remediation helpers ───────────────────────────────────────────────
+
+/// Translate a selected remediation action into either an immediate mode switch
+/// (ViewLogs) or a confirmation dialog (DeletePod / RolloutRestart).
+fn handle_expert_remediation(app: &mut App, suggestion: RemediationSuggestion) {
+    match &suggestion.kind {
+        RemediationKind::ViewLogs { name, namespace: _ } => {
+            // Read-only — no confirmation required; open log viewer immediately.
+            app.log = LogView::new(name.clone(), vec![]);
+            app.mode = Mode::Log;
+        }
+        RemediationKind::DeletePod { name, namespace } => {
+            let msg = format!("Delete pod {namespace}/{name}?\nIts controller will recreate it.");
+            app.confirm_dialog = Some(ConfirmDialog::new("Delete Pod", msg));
+            app.pending_remediation = Some(suggestion);
+            app.mode = Mode::Confirm;
+        }
+        RemediationKind::RolloutRestart {
+            owner,
+            owner_kind,
+            namespace,
+        } => {
+            let target = format!("{}/{}", owner_kind.to_lowercase(), owner);
+            let msg = format!("Rollout restart {target} in {namespace}?\nThis triggers a rolling pod replacement.");
+            app.confirm_dialog = Some(ConfirmDialog::new("Rollout Restart", msg));
+            app.pending_remediation = Some(suggestion);
+            app.mode = Mode::Confirm;
+        }
+    }
+}
+
+/// Execute a confirmed remediation action via `kubectl` in a background task.
+/// Result (success message or error) is delivered via `op_result_tx`.
+fn execute_remediation(app: &mut App, suggestion: RemediationSuggestion) {
+    let tx = app.op_result_tx.clone();
+    match suggestion.kind {
+        RemediationKind::ViewLogs { .. } => {} // handled immediately in handle_expert_remediation
+        RemediationKind::DeletePod { name, namespace } => {
+            tokio::spawn(async move {
+                let result = std::process::Command::new("kubectl")
+                    .args(["delete", "pod", &name, "-n", &namespace, "--grace-period=0"])
+                    .output();
+                let op = match result {
+                    Ok(out) if out.status.success() => {
+                        OpResult::Ok(format!("Deleted pod {namespace}/{name}"))
+                    }
+                    Ok(out) => {
+                        OpResult::Err(String::from_utf8_lossy(&out.stderr).trim().to_string())
+                    }
+                    Err(e) => OpResult::Err(e.to_string()),
+                };
+                let _ = tx.send(op).await;
+            });
+        }
+        RemediationKind::RolloutRestart {
+            owner,
+            owner_kind,
+            namespace,
+        } => {
+            tokio::spawn(async move {
+                let target = format!("{}/{}", owner_kind.to_lowercase(), owner);
+                let result = std::process::Command::new("kubectl")
+                    .args(["rollout", "restart", &target, "-n", &namespace])
+                    .output();
+                let op = match result {
+                    Ok(out) if out.status.success() => OpResult::Ok(format!(
+                        "Rollout restart triggered for {target} in {namespace}"
+                    )),
+                    Ok(out) => {
+                        OpResult::Err(String::from_utf8_lossy(&out.stderr).trim().to_string())
+                    }
+                    Err(e) => OpResult::Err(e.to_string()),
+                };
+                let _ = tx.send(op).await;
+            });
+        }
+    }
+}
+
 // ─── Rendering ────────────────────────────────────────────────────────────────
 
 fn render(frame: &mut Frame, app: &mut App) {
@@ -2195,7 +2476,7 @@ fn render(frame: &mut Frame, app: &mut App) {
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
-            Constraint::Length(2), // header
+            Constraint::Length(7), // header (6 logo + 1 border)
             Constraint::Min(0),    // main (browser + optional chat)
             Constraint::Length(1), // footer (prompt / status / hints)
         ])
@@ -2234,12 +2515,24 @@ fn render(frame: &mut Frame, app: &mut App) {
 }
 
 fn render_header(frame: &mut Frame, app: &App, area: Rect) {
+    use crate::ui::splash::{logo_frame_color, LOGO_FRAMES};
+
+    // ── Determine logo width (widest frame line + 1 padding). ────────────────
+    let logo_width = LOGO_FRAMES
+        .iter()
+        .flat_map(|f| f.iter())
+        .map(|l| l.chars().count())
+        .max()
+        .unwrap_or(26) as u16
+        + 1;
+
+    // ── Horizontal split: info-panel (left) | logo (right). ──────────────────
     let chunks = Layout::default()
         .direction(Direction::Horizontal)
-        .constraints([Constraint::Min(20), Constraint::Length(45)])
+        .constraints([Constraint::Min(20), Constraint::Length(logo_width)])
         .split(area);
 
-    // Build breadcrumb trail from navigation history (last 4 entries).
+    // ── Build info text. ──────────────────────────────────────────────────────
     let trail = app.history.trail(4);
     let breadcrumbs = if trail.len() <= 1 {
         app.browser
@@ -2271,7 +2564,6 @@ fn render_header(frame: &mut Frame, app: &App, area: Rect) {
         Mode::Browse => "",
     };
 
-    // History navigation indicators.
     let back_indicator = if app.history.can_go_back() {
         "‹"
     } else {
@@ -2294,23 +2586,72 @@ fn render_header(frame: &mut Frame, app: &App, area: Rect) {
         String::new()
     };
 
-    let title = Paragraph::new(format!(
-        " k7s  {}  {back_indicator} {breadcrumbs} {fwd_indicator}  ns:{ns_label}{mode_tag}{expert_badge}",
-        env!("CARGO_PKG_VERSION"),
-    ))
-    .style(
-        Style::default()
-            .fg(Color::Cyan)
-            .add_modifier(Modifier::BOLD),
-    )
-    .block(Block::default().borders(Borders::BOTTOM));
-    frame.render_widget(title, chunks[0]);
+    // Left panel: nav line + connection line, then empty rows to fill.
+    // The Paragraph auto-pads with blank lines for the remaining rows
+    // (area.height - 1 border row = 6 content rows; we write 2 text lines).
+    let info_lines = vec![
+        Line::from(Span::styled(
+            format!(
+                " k7s {}  {back_indicator} {breadcrumbs} {fwd_indicator}  ns:{ns_label}{mode_tag}{expert_badge}",
+                env!("CARGO_PKG_VERSION"),
+            ),
+            Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD),
+        )),
+        Line::from(Span::styled(
+            format!(" {}", app.connection.label()),
+            Style::default().fg(app.connection.color()),
+        )),
+    ];
+    frame.render_widget(
+        Paragraph::new(info_lines).block(Block::default().borders(Borders::BOTTOM)),
+        chunks[0],
+    );
 
-    let conn = Paragraph::new(format!(" {}", app.connection.label()))
-        .style(Style::default().fg(app.connection.color()))
-        .block(Block::default().borders(Borders::BOTTOM))
-        .alignment(Alignment::Right);
-    frame.render_widget(conn, chunks[1]);
+    // ── Right panel: animated logo (cross-dissolve when transition active). ──
+    let logo_lines: Vec<Line> = if let Some(crate::ui::logo_transition::TransitionState::Hold {
+        ..
+    }) = &app.logo_transition
+    {
+        // In hold phase — render the current clean frame directly.
+        let frame_lines = LOGO_FRAMES[app.logo_frame % LOGO_FRAMES.len()];
+        let color = logo_frame_color(app.logo_frame);
+        frame_lines
+            .iter()
+            .map(|l| {
+                Line::from(Span::styled(
+                    *l,
+                    Style::default().fg(color).add_modifier(Modifier::BOLD),
+                ))
+            })
+            .collect()
+    } else {
+        // Transition in progress — render from the composite buffer.
+        use ratatui::text::Span;
+        let next_color = logo_frame_color((app.logo_frame + 1) % LOGO_FRAMES.len());
+        app.logo_buf
+            .cells
+            .iter()
+            .map(|row| {
+                let spans: Vec<Span> = row
+                    .iter()
+                    .map(|&ch| match ch {
+                        '.' => Span::styled(".", Style::default().fg(Color::DarkGray)),
+                        '+' => Span::styled("+", Style::default().fg(Color::Yellow)),
+                        ' ' => Span::raw(" "),
+                        c => Span::styled(
+                            c.to_string(),
+                            Style::default().fg(next_color).add_modifier(Modifier::BOLD),
+                        ),
+                    })
+                    .collect();
+                Line::from(spans)
+            })
+            .collect()
+    };
+    frame.render_widget(
+        Paragraph::new(logo_lines).block(Block::default().borders(Borders::BOTTOM)),
+        chunks[1],
+    );
 }
 
 fn render_main(frame: &mut Frame, app: &mut App, area: Rect) {

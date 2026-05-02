@@ -12,6 +12,7 @@
 //! - Renderer logic is testable with plain `serde_json::json!()` literals.
 
 pub mod alias;
+pub mod chat_log;
 pub mod config_map;
 pub mod container;
 pub mod context;
@@ -19,21 +20,30 @@ pub mod crd;
 pub mod cron_job;
 pub mod daemon_set;
 pub mod deployment;
+pub mod endpoint_slice;
+pub mod endpoints;
 pub mod event;
 pub mod generic;
 pub mod helm;
+pub mod hpa;
 pub mod job;
+pub mod limit_range;
 pub mod namespace;
 pub mod node;
+pub mod pdb;
 pub mod pod;
+pub mod portforward;
 pub mod pv;
 pub mod rbac;
 pub mod replica_set;
+pub mod resource_quota;
 pub mod secret;
 pub mod service;
 pub mod stateful_set;
+pub mod storage_class;
 
 pub use alias::AliasRenderer;
+pub use chat_log::ChatLogRenderer;
 pub use config_map::ConfigMapRenderer;
 pub use container::ContainerRenderer;
 pub use context::{context_gvr, ContextRenderer};
@@ -41,20 +51,28 @@ pub use crd::CrdRenderer;
 pub use cron_job::CronJobRenderer;
 pub use daemon_set::DaemonSetRenderer;
 pub use deployment::DeploymentRenderer;
+pub use endpoint_slice::EndpointSliceRenderer;
+pub use endpoints::EndpointsRenderer;
 pub use event::EventRenderer;
 pub use generic::GenericRenderer;
+pub use hpa::HpaRenderer;
 pub use job::JobRenderer;
+pub use limit_range::LimitRangeRenderer;
 pub use namespace::NamespaceRenderer;
 pub use node::NodeRenderer;
+pub use pdb::PdbRenderer;
 pub use pod::PodRenderer;
+pub use portforward::PfRenderer;
 pub use pv::{PvRenderer, PvcRenderer};
 pub use rbac::{
     ClusterRoleBindingRenderer, ClusterRoleRenderer, RoleBindingRenderer, RoleRenderer,
 };
 pub use replica_set::ReplicaSetRenderer;
+pub use resource_quota::ResourceQuotaRenderer;
 pub use secret::SecretRenderer;
 pub use service::ServiceRenderer;
 pub use stateful_set::StatefulSetRenderer;
+pub use storage_class::StorageClassRenderer;
 
 use ratatui::layout::Constraint;
 use serde_json::Value;

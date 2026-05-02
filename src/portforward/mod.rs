@@ -247,6 +247,13 @@ impl PortForwardManager {
             .collect()
     }
 
+    /// Remove a forward identified by its display string (e.g. `"pf-3"`).
+    pub fn remove_by_id_str(&mut self, id_str: &str) {
+        if let Some((&id, _)) = self.forwards.iter().find(|(k, _)| k.to_string() == id_str) {
+            self.remove(id);
+        }
+    }
+
     pub fn is_empty(&self) -> bool {
         self.forwards.is_empty()
     }

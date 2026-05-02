@@ -9,7 +9,8 @@
 //! Kubernetes resources must NEVER be passed directly.  The `add_context()`
 //! method is the enforced ingress point.
 
-use crate::ai::provider::{Message, Provider};
+use crate::ai::chat_log::{ChatLog, ChatLogMessage};
+use crate::ai::provider::{Message, Provider, Role};
 use crate::ai::token_budget::{estimate_tokens, BudgetCheck, TokenBudget};
 use crate::config::{SanitizerConfig, TokenBudgetConfig};
 use crate::sanitizer::{Redactor, SafeMetadata};
@@ -49,6 +50,8 @@ pub struct ChatSession {
     /// output or copy-paste connection strings from other tools. All user messages
     /// pass through this redactor before being added to the message list.
     redactor: Redactor,
+    /// ID of the currently associated persisted log (if any).
+    pub active_log_id: Option<String>,
 }
 
 impl ChatSession {
@@ -64,6 +67,7 @@ impl ChatSession {
             budget: TokenBudget::from_config(budget_cfg),
             context: Vec::new(),
             redactor,
+            active_log_id: None,
         }
     }
 
@@ -158,6 +162,45 @@ impl ChatSession {
     /// Build the full message list for a send — exposed for streaming.
     pub fn messages_for_send(&self, user_message: &str) -> Vec<Message> {
         self.build_messages(user_message)
+    }
+
+    /// Snapshot the current session into a persistable [`ChatLog`].
+    ///
+    /// Only user and assistant turns are included — system messages are
+    /// re-constructed from the system prompt on every send and need not be stored.
+    pub fn export_log(&self, context_label: Option<String>) -> ChatLog {
+        // Start from a fresh log each export; the store deduplicates by ID.
+        let mut log = ChatLog::new(context_label.clone());
+
+        log.context_label = context_label.or(log.context_label);
+        log.messages = self
+            .history
+            .iter()
+            .filter(|m| m.role != Role::System)
+            .map(|m| ChatLogMessage::new(m.role.clone(), m.content.clone()))
+            .collect();
+        log.tokens_used = self.budget.used();
+        log
+    }
+
+    /// Restore a previously persisted session into this one.
+    ///
+    /// Clears the current history and context, then replays the log's
+    /// messages as history entries.  Token budget usage is carried over.
+    pub fn import_log(&mut self, log: &ChatLog) {
+        self.history.clear();
+        self.context.clear();
+        self.active_log_id = Some(log.id.clone());
+
+        for msg in &log.messages {
+            match msg.role {
+                Role::User => self.history.push(Message::user(msg.content.clone())),
+                Role::Assistant => self.history.push(Message::assistant(msg.content.clone())),
+                Role::System => {}
+            }
+        }
+
+        self.budget.record_usage(log.tokens_used);
     }
 
     fn build_messages(&self, user_message: &str) -> Vec<Message> {

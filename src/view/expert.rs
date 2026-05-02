@@ -82,6 +82,10 @@ pub struct ExpertAlert {
     pub detected_at: DateTime<Utc>,
     /// Whether the LLM is still generating the recommendation.
     pub pending: bool,
+    /// Name of the owning controller (Deployment, StatefulSet, DaemonSet) if known.
+    pub owner_name: Option<String>,
+    /// Kind of the owning controller (e.g. "Deployment", "StatefulSet").
+    pub owner_kind: Option<String>,
 }
 
 impl ExpertAlert {
@@ -99,6 +103,8 @@ impl ExpertAlert {
             recommendation: None,
             detected_at: Utc::now(),
             pending: true,
+            owner_name: None,
+            owner_kind: None,
         }
     }
 }
@@ -144,28 +150,34 @@ impl FailureDetector {
                             .pointer("/restartCount")
                             .and_then(|v| v.as_u64())
                             .unwrap_or(0);
-                        return Some(ExpertAlert::new(
+                        let mut alert = ExpertAlert::new(
                             AlertKind::PodFailure,
                             &name,
                             &ns,
                             format!("CrashLoopBackOff (restarts: {restarts})"),
-                        ));
+                        );
+                        enrich_owner(&mut alert, pod_json);
+                        return Some(alert);
                     }
                     "OOMKilled" | "Error" => {
-                        return Some(ExpertAlert::new(
+                        let mut alert = ExpertAlert::new(
                             AlertKind::PodFailure,
                             &name,
                             &ns,
                             format!("Container terminated: {reason}"),
-                        ));
+                        );
+                        enrich_owner(&mut alert, pod_json);
+                        return Some(alert);
                     }
                     "ImagePullBackOff" | "ErrImagePull" => {
-                        return Some(ExpertAlert::new(
+                        let mut alert = ExpertAlert::new(
                             AlertKind::PodFailure,
                             &name,
                             &ns,
                             format!("Image pull failure: {reason}"),
-                        ));
+                        );
+                        enrich_owner(&mut alert, pod_json);
+                        return Some(alert);
                     }
                     _ => {}
                 }
@@ -176,12 +188,14 @@ impl FailureDetector {
                     .and_then(|v| v.as_str())
                     .unwrap_or("");
                 if last_reason == "OOMKilled" {
-                    return Some(ExpertAlert::new(
+                    let mut alert = ExpertAlert::new(
                         AlertKind::PodFailure,
                         &name,
                         &ns,
                         "OOMKilled (out of memory)".to_string(),
-                    ));
+                    );
+                    enrich_owner(&mut alert, pod_json);
+                    return Some(alert);
                 }
             }
         }
@@ -196,12 +210,14 @@ impl FailureDetector {
                 .pointer("/status/reason")
                 .and_then(|v| v.as_str())
                 .unwrap_or("Unknown");
-            return Some(ExpertAlert::new(
+            let mut alert = ExpertAlert::new(
                 AlertKind::PodFailure,
                 &name,
                 &ns,
                 format!("Pod Failed: {reason}"),
-            ));
+            );
+            enrich_owner(&mut alert, pod_json);
+            return Some(alert);
         }
 
         None
@@ -301,6 +317,113 @@ impl FailureDetector {
     }
 }
 
+/// Populate `alert.owner_name` / `alert.owner_kind` from the pod's
+/// `metadata.ownerReferences` array.  Only the first owner ref is used; only
+/// controller-owned refs are considered (e.g. ReplicaSet → points at Deployment).
+fn enrich_owner(alert: &mut ExpertAlert, pod_json: &serde_json::Value) {
+    let Some(refs) = pod_json
+        .pointer("/metadata/ownerReferences")
+        .and_then(|v| v.as_array())
+    else {
+        return;
+    };
+    for r in refs {
+        let is_controller = r
+            .pointer("/controller")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false);
+        if !is_controller {
+            continue;
+        }
+        let kind = r
+            .pointer("/kind")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string();
+        let name = r
+            .pointer("/name")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string();
+        if !kind.is_empty() && !name.is_empty() {
+            alert.owner_kind = Some(kind);
+            alert.owner_name = Some(name);
+        }
+        break;
+    }
+}
+
+// ─── Remediation types ────────────────────────────────────────────────────────
+
+/// A concrete action the user can apply directly from the expert panel.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum RemediationKind {
+    /// Delete the failing pod — its controller will recreate it.
+    DeletePod { name: String, namespace: String },
+    /// Run `kubectl rollout restart <kind>/<owner> -n <namespace>`.
+    RolloutRestart {
+        owner: String,
+        owner_kind: String,
+        namespace: String,
+    },
+    /// Open the log viewer for the pod.
+    ViewLogs { name: String, namespace: String },
+}
+
+/// A suggested remediation action surfaced in the expert detail pane.
+#[derive(Debug, Clone)]
+pub struct RemediationSuggestion {
+    pub kind: RemediationKind,
+    pub label: &'static str,
+    pub description: &'static str,
+}
+
+/// Build the list of remediation actions applicable to `alert`.
+///
+/// The list is ordered by safety: read-only actions first, destructive last.
+pub fn suggestions_for_alert(alert: &ExpertAlert) -> Vec<RemediationSuggestion> {
+    let name = alert.resource.clone();
+    let ns = alert.namespace.clone();
+    let mut out = Vec::new();
+
+    // View logs is always available for pod-related alerts.
+    out.push(RemediationSuggestion {
+        kind: RemediationKind::ViewLogs {
+            name: name.clone(),
+            namespace: ns.clone(),
+        },
+        label: "View Logs",
+        description: "Open the log viewer for this pod (read-only)",
+    });
+
+    // Delete pod — applicable for pod failures and log spam.
+    if matches!(alert.kind, AlertKind::PodFailure | AlertKind::LogSpam) {
+        out.push(RemediationSuggestion {
+            kind: RemediationKind::DeletePod {
+                name: name.clone(),
+                namespace: ns.clone(),
+            },
+            label: "Delete Pod",
+            description: "Delete the pod — its controller will recreate it",
+        });
+    }
+
+    // Rollout restart — only when the owning controller is known.
+    if let (Some(owner), Some(owner_kind)) = (&alert.owner_name, &alert.owner_kind) {
+        out.push(RemediationSuggestion {
+            kind: RemediationKind::RolloutRestart {
+                owner: owner.clone(),
+                owner_kind: owner_kind.clone(),
+                namespace: ns.clone(),
+            },
+            label: "Rollout Restart",
+            description: "Rolling restart of the owning controller (zero-downtime)",
+        });
+    }
+
+    out
+}
+
 // ─── ExpertPanel (TUI widget) ─────────────────────────────────────────────────
 
 /// Maximum alerts kept in the rolling buffer.
@@ -319,7 +442,17 @@ pub enum ExpertAction {
     Dismiss,
     /// User pressed `r` — caller should trigger an immediate cluster rescan.
     Rescan,
+    /// User selected a remediation action from the detail pane.
+    Remediate(RemediationSuggestion),
 }
+
+impl PartialEq for RemediationSuggestion {
+    fn eq(&self, other: &Self) -> bool {
+        self.kind == other.kind
+    }
+}
+
+impl Eq for RemediationSuggestion {}
 
 /// The expert mode TUI overlay.
 ///
@@ -333,6 +466,10 @@ pub struct ExpertPanel {
     show_detail: bool,
     /// Scroll offset inside the detail pane.
     detail_scroll: u16,
+    /// Whether the remediation action sub-menu is open inside the detail pane.
+    remediation_mode: bool,
+    /// Index of the highlighted remediation action in the sub-menu.
+    remediation_selected: usize,
 }
 
 impl ExpertPanel {
@@ -342,6 +479,8 @@ impl ExpertPanel {
             list_state: ListState::default(),
             show_detail: false,
             detail_scroll: 0,
+            remediation_mode: false,
+            remediation_selected: 0,
         }
     }
 
@@ -403,13 +542,37 @@ impl ExpertPanel {
     /// Handle a key event inside the expert panel.
     pub fn handle_key(&mut self, key: &KeyEvent) -> ExpertAction {
         match key.code {
-            KeyCode::Esc | KeyCode::Char('q') if !self.show_detail => {
-                return ExpertAction::Close;
+            // ── Global ───────────────────────────────────────────────────────
+            KeyCode::Char('r') => return ExpertAction::Rescan,
+
+            // ── Esc: unwind one layer at a time ──────────────────────────────
+            KeyCode::Esc => {
+                if self.remediation_mode {
+                    self.remediation_mode = false;
+                    self.remediation_selected = 0;
+                } else if self.show_detail {
+                    self.show_detail = false;
+                    self.detail_scroll = 0;
+                } else {
+                    return ExpertAction::Close;
+                }
             }
-            KeyCode::Esc if self.show_detail => {
-                self.show_detail = false;
-                self.detail_scroll = 0;
-                return ExpertAction::Noop;
+
+            // ── Close from list view ─────────────────────────────────────────
+            KeyCode::Char('q') if !self.show_detail => return ExpertAction::Close,
+
+            // ── Enter: in remediation menu → execute; in list → open detail ──
+            KeyCode::Enter | KeyCode::Char(' ') if self.remediation_mode => {
+                if let Some(idx) = self.list_state.selected() {
+                    if let Some(alert) = self.alerts.get(idx) {
+                        let suggestions = suggestions_for_alert(alert);
+                        if let Some(suggestion) =
+                            suggestions.into_iter().nth(self.remediation_selected)
+                        {
+                            return ExpertAction::Remediate(suggestion);
+                        }
+                    }
+                }
             }
             KeyCode::Enter | KeyCode::Char(' ') if !self.show_detail => {
                 if let Some(idx) = self.list_state.selected() {
@@ -418,7 +581,15 @@ impl ExpertPanel {
                     return ExpertAction::SelectAlert(idx);
                 }
             }
-            KeyCode::Char('d') | KeyCode::Delete => {
+
+            // ── 'a': toggle remediation sub-menu (only in detail view) ───────
+            KeyCode::Char('a') if self.show_detail => {
+                self.remediation_mode = !self.remediation_mode;
+                self.remediation_selected = 0;
+            }
+
+            // ── Dismiss alert ─────────────────────────────────────────────────
+            KeyCode::Char('d') | KeyCode::Delete if !self.remediation_mode => {
                 if let Some(idx) = self.list_state.selected() {
                     self.alerts.remove(idx);
                     if self.alerts.is_empty() {
@@ -428,26 +599,39 @@ impl ExpertPanel {
                         self.list_state.select(Some(new_idx));
                     }
                     self.show_detail = false;
+                    self.remediation_mode = false;
                     return ExpertAction::Dismiss;
                 }
             }
+
+            // ── Navigation ───────────────────────────────────────────────────
             KeyCode::Up | KeyCode::Char('k') => {
-                if self.show_detail {
+                if self.remediation_mode {
+                    self.remediation_selected = self.remediation_selected.saturating_sub(1);
+                } else if self.show_detail {
                     self.detail_scroll = self.detail_scroll.saturating_sub(1);
                 } else {
                     self.move_selection(-1);
                 }
             }
             KeyCode::Down | KeyCode::Char('j') => {
-                if self.show_detail {
+                if self.remediation_mode {
+                    if let Some(idx) = self.list_state.selected() {
+                        if let Some(alert) = self.alerts.get(idx) {
+                            let count = suggestions_for_alert(alert).len();
+                            if count > 0 {
+                                self.remediation_selected =
+                                    (self.remediation_selected + 1).min(count - 1);
+                            }
+                        }
+                    }
+                } else if self.show_detail {
                     self.detail_scroll += 1;
                 } else {
                     self.move_selection(1);
                 }
             }
-            KeyCode::Char('r') => {
-                return ExpertAction::Rescan;
-            }
+
             _ => {}
         }
         ExpertAction::Noop
@@ -596,6 +780,33 @@ impl ExpertPanel {
         let inner = block.inner(area);
         frame.render_widget(block, area);
 
+        if self.remediation_mode {
+            // Split: top ~60% recommendation, bottom ~40% remediation actions.
+            let chunks = Layout::default()
+                .direction(Direction::Vertical)
+                .constraints([Constraint::Percentage(58), Constraint::Percentage(42)])
+                .split(inner);
+            self.render_recommendation_para(frame, alert, chunks[0]);
+            self.render_remediation_submenu(frame, alert, chunks[1]);
+        } else {
+            // Full area for recommendation; one-line footer with hint.
+            let content_area = Rect {
+                height: inner.height.saturating_sub(1),
+                ..inner
+            };
+            let footer_area = Rect {
+                y: inner.y + inner.height.saturating_sub(1),
+                height: 1,
+                ..inner
+            };
+            self.render_recommendation_para(frame, alert, content_area);
+            let footer = Paragraph::new(" a: actions  ↑↓: scroll  d: dismiss  Esc: back")
+                .style(Style::default().fg(Color::DarkGray));
+            frame.render_widget(footer, footer_area);
+        }
+    }
+
+    fn render_recommendation_para(&self, frame: &mut Frame, alert: &ExpertAlert, area: Rect) {
         let content = if alert.pending {
             format!(
                 "Detected: {}\n\nSummary:\n{}\n\n⏳ Analyzing with AI…",
@@ -619,8 +830,66 @@ impl ExpertPanel {
             .wrap(Wrap { trim: false })
             .scroll((self.detail_scroll, 0))
             .style(Style::default().fg(Color::White));
+        frame.render_widget(para, area);
+    }
 
-        frame.render_widget(para, inner);
+    fn render_remediation_submenu(&self, frame: &mut Frame, alert: &ExpertAlert, area: Rect) {
+        if area.height < 3 {
+            return;
+        }
+        let header_area = Rect { height: 1, ..area };
+        let list_area = Rect {
+            y: area.y + 1,
+            height: area.height.saturating_sub(2),
+            ..area
+        };
+        let footer_area = Rect {
+            y: area.y + area.height.saturating_sub(1),
+            height: 1,
+            ..area
+        };
+
+        let header = Paragraph::new(" ⚡ Remediation Actions").style(
+            Style::default()
+                .fg(Color::Yellow)
+                .add_modifier(Modifier::BOLD),
+        );
+        frame.render_widget(header, header_area);
+
+        let suggestions = suggestions_for_alert(alert);
+        let items: Vec<ListItem> = suggestions
+            .iter()
+            .enumerate()
+            .map(|(i, s)| {
+                let selected = i == self.remediation_selected;
+                let prefix = if selected { "▶ " } else { "  " };
+                let line = Line::from(vec![
+                    Span::styled(
+                        format!("{}{}", prefix, s.label),
+                        if selected {
+                            Style::default()
+                                .fg(Color::Black)
+                                .bg(Color::Yellow)
+                                .add_modifier(Modifier::BOLD)
+                        } else {
+                            Style::default().fg(Color::White)
+                        },
+                    ),
+                    Span::styled(
+                        format!("  — {}", s.description),
+                        Style::default().fg(Color::DarkGray),
+                    ),
+                ]);
+                ListItem::new(line)
+            })
+            .collect();
+
+        let list = List::new(items);
+        frame.render_widget(list, list_area);
+
+        let footer = Paragraph::new(" Enter: apply  ↑↓: navigate  Esc: cancel")
+            .style(Style::default().fg(Color::DarkGray));
+        frame.render_widget(footer, footer_area);
     }
 }
 
@@ -857,5 +1126,235 @@ mod tests {
         // First Esc closes detail, second closes panel.
         assert_eq!(panel.handle_key(&esc), ExpertAction::Noop);
         assert_eq!(panel.handle_key(&esc), ExpertAction::Close);
+    }
+
+    // ── Phase 23: owner ref parsing ───────────────────────────────────────────
+
+    #[test]
+    fn enrich_owner_sets_deployment_fields() {
+        let pod = json!({
+            "metadata": {
+                "name": "web-abc-xyz",
+                "namespace": "prod",
+                "ownerReferences": [{
+                    "kind": "ReplicaSet",
+                    "name": "web-abc",
+                    "controller": true
+                }]
+            },
+            "status": {
+                "containerStatuses": [{
+                    "restartCount": 3,
+                    "state": { "waiting": { "reason": "CrashLoopBackOff" } }
+                }]
+            }
+        });
+        let alert = FailureDetector::check_pod(&pod).unwrap();
+        assert_eq!(alert.owner_kind.as_deref(), Some("ReplicaSet"));
+        assert_eq!(alert.owner_name.as_deref(), Some("web-abc"));
+    }
+
+    #[test]
+    fn enrich_owner_ignores_non_controller_refs() {
+        let pod = json!({
+            "metadata": {
+                "name": "standalone",
+                "namespace": "dev",
+                "ownerReferences": [{
+                    "kind": "Deployment",
+                    "name": "web",
+                    "controller": false
+                }]
+            },
+            "status": {
+                "containerStatuses": [{
+                    "restartCount": 1,
+                    "state": { "waiting": { "reason": "CrashLoopBackOff" } }
+                }]
+            }
+        });
+        let alert = FailureDetector::check_pod(&pod).unwrap();
+        assert!(alert.owner_name.is_none());
+        assert!(alert.owner_kind.is_none());
+    }
+
+    #[test]
+    fn enrich_owner_absent_when_no_refs() {
+        let pod = json!({
+            "metadata": { "name": "orphan", "namespace": "default" },
+            "status": {
+                "containerStatuses": [{
+                    "restartCount": 0,
+                    "state": { "waiting": { "reason": "ImagePullBackOff" } }
+                }]
+            }
+        });
+        let alert = FailureDetector::check_pod(&pod).unwrap();
+        assert!(alert.owner_name.is_none());
+    }
+
+    // ── Phase 23: suggestions_for_alert ──────────────────────────────────────
+
+    #[test]
+    fn suggestions_always_include_view_logs() {
+        let alert = ExpertAlert::new(AlertKind::PodFailure, "pod", "ns", "crash");
+        let s = suggestions_for_alert(&alert);
+        assert!(s.iter().any(|x| x.label == "View Logs"));
+    }
+
+    #[test]
+    fn suggestions_include_delete_for_pod_failure() {
+        let alert = ExpertAlert::new(AlertKind::PodFailure, "pod", "ns", "crash");
+        let s = suggestions_for_alert(&alert);
+        assert!(s.iter().any(|x| x.label == "Delete Pod"));
+    }
+
+    #[test]
+    fn suggestions_include_delete_for_log_spam() {
+        let alert = ExpertAlert::new(AlertKind::LogSpam, "pod", "ns", "errors");
+        let s = suggestions_for_alert(&alert);
+        assert!(s.iter().any(|x| x.label == "Delete Pod"));
+    }
+
+    #[test]
+    fn suggestions_no_delete_for_performance_alert() {
+        let alert = ExpertAlert::new(AlertKind::Performance, "node-1", "default", "OOM");
+        let s = suggestions_for_alert(&alert);
+        assert!(!s.iter().any(|x| x.label == "Delete Pod"));
+    }
+
+    #[test]
+    fn suggestions_include_rollout_restart_when_owner_known() {
+        let mut alert = ExpertAlert::new(AlertKind::PodFailure, "pod", "ns", "crash");
+        alert.owner_name = Some("web".into());
+        alert.owner_kind = Some("Deployment".into());
+        let s = suggestions_for_alert(&alert);
+        assert!(s.iter().any(|x| x.label == "Rollout Restart"));
+    }
+
+    #[test]
+    fn suggestions_no_rollout_restart_without_owner() {
+        let alert = ExpertAlert::new(AlertKind::PodFailure, "orphan", "ns", "crash");
+        let s = suggestions_for_alert(&alert);
+        assert!(!s.iter().any(|x| x.label == "Rollout Restart"));
+    }
+
+    // ── Phase 23: remediation key handling ───────────────────────────────────
+
+    #[test]
+    fn a_key_opens_remediation_mode_in_detail() {
+        let mut panel = ExpertPanel::new();
+        panel.push_alert(ExpertAlert::new(
+            AlertKind::PodFailure,
+            "pod",
+            "ns",
+            "crash",
+        ));
+        panel.list_state.select(Some(0));
+        // Open detail view first.
+        panel.handle_key(&KeyEvent::from(KeyCode::Enter));
+        assert!(!panel.remediation_mode);
+        // Press 'a' to open remediation sub-menu.
+        panel.handle_key(&KeyEvent::from(KeyCode::Char('a')));
+        assert!(panel.remediation_mode);
+    }
+
+    #[test]
+    fn a_key_toggles_remediation_mode() {
+        let mut panel = ExpertPanel::new();
+        panel.push_alert(ExpertAlert::new(
+            AlertKind::PodFailure,
+            "pod",
+            "ns",
+            "crash",
+        ));
+        panel.list_state.select(Some(0));
+        panel.handle_key(&KeyEvent::from(KeyCode::Enter));
+        panel.handle_key(&KeyEvent::from(KeyCode::Char('a')));
+        panel.handle_key(&KeyEvent::from(KeyCode::Char('a')));
+        assert!(!panel.remediation_mode);
+    }
+
+    #[test]
+    fn esc_closes_remediation_before_detail() {
+        let mut panel = ExpertPanel::new();
+        panel.push_alert(ExpertAlert::new(
+            AlertKind::PodFailure,
+            "pod",
+            "ns",
+            "crash",
+        ));
+        panel.list_state.select(Some(0));
+        panel.handle_key(&KeyEvent::from(KeyCode::Enter)); // open detail
+        panel.handle_key(&KeyEvent::from(KeyCode::Char('a'))); // open remediation
+                                                               // First Esc: closes remediation sub-menu (stays in detail).
+        assert_eq!(
+            panel.handle_key(&KeyEvent::from(KeyCode::Esc)),
+            ExpertAction::Noop
+        );
+        assert!(!panel.remediation_mode);
+        assert!(panel.show_detail);
+        // Second Esc: closes detail.
+        assert_eq!(
+            panel.handle_key(&KeyEvent::from(KeyCode::Esc)),
+            ExpertAction::Noop
+        );
+        assert!(!panel.show_detail);
+        // Third Esc: closes panel.
+        assert_eq!(
+            panel.handle_key(&KeyEvent::from(KeyCode::Esc)),
+            ExpertAction::Close
+        );
+    }
+
+    #[test]
+    fn enter_in_remediation_mode_returns_remediate() {
+        let mut panel = ExpertPanel::new();
+        panel.push_alert(ExpertAlert::new(
+            AlertKind::PodFailure,
+            "pod",
+            "ns",
+            "crash",
+        ));
+        panel.list_state.select(Some(0));
+        panel.handle_key(&KeyEvent::from(KeyCode::Enter)); // open detail
+        panel.handle_key(&KeyEvent::from(KeyCode::Char('a'))); // open remediation
+                                                               // remediation_selected = 0 → ViewLogs (first suggestion)
+        let action = panel.handle_key(&KeyEvent::from(KeyCode::Enter));
+        match action {
+            ExpertAction::Remediate(s) => {
+                assert_eq!(s.label, "View Logs");
+            }
+            other => panic!("expected Remediate, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn down_key_navigates_remediation_list() {
+        let mut panel = ExpertPanel::new();
+        let mut alert = ExpertAlert::new(AlertKind::PodFailure, "pod", "ns", "crash");
+        alert.owner_name = Some("web".into());
+        alert.owner_kind = Some("Deployment".into());
+        panel.push_alert(alert);
+        panel.list_state.select(Some(0));
+        panel.handle_key(&KeyEvent::from(KeyCode::Enter));
+        panel.handle_key(&KeyEvent::from(KeyCode::Char('a')));
+        // Navigate down once — should move from ViewLogs (0) to DeletePod (1).
+        panel.handle_key(&KeyEvent::from(KeyCode::Down));
+        assert_eq!(panel.remediation_selected, 1);
+    }
+
+    #[test]
+    fn remediation_kind_view_logs_carries_pod_name() {
+        let alert = ExpertAlert::new(AlertKind::PodFailure, "crash-pod", "staging", "crash");
+        let s = suggestions_for_alert(&alert);
+        let logs = s.iter().find(|x| x.label == "View Logs").unwrap();
+        assert_eq!(
+            logs.kind,
+            RemediationKind::ViewLogs {
+                name: "crash-pod".into(),
+                namespace: "staging".into()
+            }
+        );
     }
 }

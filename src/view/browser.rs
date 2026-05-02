@@ -253,10 +253,11 @@ pub fn browser_for_resource(alias: &str, registry: &crate::dao::Registry) -> Opt
     use crate::client::gvr::well_known;
     use crate::render::{
         ClusterRoleBindingRenderer, ClusterRoleRenderer, ConfigMapRenderer, CrdRenderer,
-        CronJobRenderer, DaemonSetRenderer, DeploymentRenderer, EventRenderer, GenericRenderer,
-        JobRenderer, NamespaceRenderer, NodeRenderer, PodRenderer, PvRenderer, PvcRenderer,
-        ReplicaSetRenderer, RoleBindingRenderer, RoleRenderer, SecretRenderer, ServiceRenderer,
-        StatefulSetRenderer,
+        CronJobRenderer, DaemonSetRenderer, DeploymentRenderer, EndpointSliceRenderer,
+        EndpointsRenderer, EventRenderer, GenericRenderer, HpaRenderer, JobRenderer,
+        LimitRangeRenderer, NamespaceRenderer, NodeRenderer, PdbRenderer, PodRenderer, PvRenderer,
+        PvcRenderer, ReplicaSetRenderer, ResourceQuotaRenderer, RoleBindingRenderer, RoleRenderer,
+        SecretRenderer, ServiceRenderer, StatefulSetRenderer, StorageClassRenderer,
     };
 
     let meta = registry.get_by_alias(alias)?;
@@ -290,6 +291,13 @@ pub fn browser_for_resource(alias: &str, registry: &crate::dao::Registry) -> Opt
             Box::new(ClusterRoleBindingRenderer::new())
         }
         g if g == well_known::custom_resource_definitions() => Box::new(CrdRenderer::new()),
+        g if g == well_known::horizontal_pod_autoscalers() => Box::new(HpaRenderer::new()),
+        g if g == well_known::pod_disruption_budgets() => Box::new(PdbRenderer::new()),
+        g if g == well_known::limit_ranges() => Box::new(LimitRangeRenderer::new()),
+        g if g == well_known::resource_quotas() => Box::new(ResourceQuotaRenderer::new()),
+        g if g == well_known::endpoints() => Box::new(EndpointsRenderer::new()),
+        g if g == well_known::storage_classes() => Box::new(StorageClassRenderer::new()),
+        g if g == well_known::endpoint_slices() => Box::new(EndpointSliceRenderer::new()),
         g => Box::new(GenericRenderer::new(g, namespaced)),
     };
 
@@ -325,6 +333,64 @@ pub fn container_browser(pod: &serde_json::Value) -> BrowserView {
 }
 
 /// Build a `BrowserView` listing every resource alias known to the registry.
+/// Build a static [`BrowserView`] listing persisted AI chat sessions.
+///
+/// Columns: DATE · CONTEXT · MSGS · TOKENS  (sorted newest-first).
+/// The first cell in each row is the chat log ID, used by the caller to
+/// reload a session when the user presses Enter.
+pub fn chat_log_browser(store: &crate::ai::chat_log::ChatLogStore) -> BrowserView {
+    use crate::render::ChatLogRenderer;
+
+    let mut view = BrowserView::new("Chats".to_owned(), Box::new(ChatLogRenderer::new()));
+
+    let values: Vec<serde_json::Value> = store
+        .list()
+        .into_iter()
+        .map(|log| {
+            serde_json::json!({
+                "metadata": { "name": log.id },
+                "date":     log.date_label(),
+                "context":  log.context_label.clone().unwrap_or_else(|| "(no context)".to_owned()),
+                "msgs":     log.message_count().to_string(),
+                "tokens":   log.tokens_used.to_string(),
+            })
+        })
+        .collect();
+
+    view.refresh_from_values(&values);
+    view
+}
+
+/// Build a `BrowserView` listing all active port-forwards from the manager.
+///
+/// Each row's first cell is the `ForwardId` display string (e.g. `"pf-1"`), used
+/// by the app's D-key handler to identify which forward to kill.
+pub fn pf_browser(manager: &crate::portforward::PortForwardManager) -> BrowserView {
+    use crate::portforward::ForwardSnapshot;
+    use crate::render::PfRenderer;
+
+    let mut view = BrowserView::new("PortForwards".to_owned(), Box::new(PfRenderer::new()));
+
+    let values: Vec<serde_json::Value> = manager
+        .all_sorted()
+        .iter()
+        .map(|e| {
+            let s = ForwardSnapshot::from_entry(e);
+            serde_json::json!({
+                "id":         s.id.to_string(),
+                "namespace":  s.namespace,
+                "pod":        s.pod,
+                "local_port": s.local_port,
+                "pod_port":   s.pod_port,
+                "status":     s.status,
+            })
+        })
+        .collect();
+
+    view.refresh_from_values(&values);
+    view
+}
+
 pub fn alias_browser(registry: &crate::dao::Registry) -> BrowserView {
     use crate::render::AliasRenderer;
 

@@ -18,11 +18,15 @@ pub mod workload;
 pub mod xray;
 
 pub use browser::{
-    alias_browser, browser_for_resource, container_browser, context_browser, BrowserView,
+    alias_browser, browser_for_resource, chat_log_browser, container_browser, context_browser,
+    pf_browser, BrowserView,
 };
 pub use describe::DescribeView;
 pub use dir::{DirAction, DirEntry, DirView, EntryKind};
-pub use expert::{build_expert_prompt, ExpertAction, ExpertAlert, ExpertPanel, FailureDetector};
+pub use expert::{
+    build_expert_prompt, suggestions_for_alert, ExpertAction, ExpertAlert, ExpertPanel,
+    FailureDetector, RemediationKind, RemediationSuggestion,
+};
 pub use help::{HelpAction, HelpView};
 pub use log::{LogAction, LogView};
 pub use metrics::{MetricsAction, MetricsView};

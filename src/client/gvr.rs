@@ -145,6 +145,30 @@ pub mod well_known {
     pub fn custom_resource_definitions() -> Gvr {
         Gvr::new("apiextensions.k8s.io", "v1", "customresourcedefinitions")
     }
+
+    // ── Phase 28: Resource parity ─────────────────────────────────────────────
+
+    pub fn horizontal_pod_autoscalers() -> Gvr {
+        Gvr::new("autoscaling", "v2", "horizontalpodautoscalers")
+    }
+    pub fn pod_disruption_budgets() -> Gvr {
+        Gvr::new("policy", "v1", "poddisruptionbudgets")
+    }
+    pub fn limit_ranges() -> Gvr {
+        Gvr::core("v1", "limitranges")
+    }
+    pub fn resource_quotas() -> Gvr {
+        Gvr::core("v1", "resourcequotas")
+    }
+    pub fn endpoints() -> Gvr {
+        Gvr::core("v1", "endpoints")
+    }
+    pub fn storage_classes() -> Gvr {
+        Gvr::new("storage.k8s.io", "v1", "storageclasses")
+    }
+    pub fn endpoint_slices() -> Gvr {
+        Gvr::new("discovery.k8s.io", "v1", "endpointslices")
+    }
 }
 
 #[cfg(test)]

@@ -116,11 +116,24 @@ impl Default for K7sConfig {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
 pub struct UiConfig {
     pub skin: String,
     pub enable_mouse: bool,
+    /// Cells advanced per 100 ms tick during logo cross-dissolve transitions.
+    /// Range 1–10; default 3.  Higher = faster animation.
+    pub logo_transition_speed: usize,
+}
+
+impl Default for UiConfig {
+    fn default() -> Self {
+        Self {
+            skin: String::new(),
+            enable_mouse: false,
+            logo_transition_speed: 3,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

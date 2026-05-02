@@ -49,6 +49,9 @@ pub struct ChatWidget {
     pub token_pct: u8,
     /// Whether the AI is currently generating a response.
     pub loading: bool,
+    /// Optional scope label showing which resource context is loaded.
+    /// Displayed in the chat block title: `[ AI Chat — pods/web-abc · default ]`.
+    pub scope: Option<String>,
 }
 
 impl ChatWidget {
@@ -59,7 +62,18 @@ impl ChatWidget {
             scroll: 0,
             token_pct: 0,
             loading: false,
+            scope: None,
         }
+    }
+
+    /// Set the context scope label shown in the chat header.
+    pub fn set_scope(&mut self, label: String) {
+        self.scope = Some(label);
+    }
+
+    /// Clear the context scope label (e.g. when chat is reset).
+    pub fn clear_scope(&mut self) {
+        self.scope = None;
     }
 
     /// Push a message into the conversation.
@@ -205,8 +219,12 @@ impl ChatWidget {
         let max_scroll = total_lines.saturating_sub(visible);
         self.scroll = self.scroll.min(max_scroll);
 
+        let title = match &self.scope {
+            Some(s) => format!(" AI Chat  —  {s} "),
+            None => " AI Chat ".to_owned(),
+        };
         let paragraph = Paragraph::new(lines)
-            .block(Block::default().borders(Borders::ALL).title(" AI Chat "))
+            .block(Block::default().borders(Borders::ALL).title(title))
             .scroll((self.scroll as u16, 0))
             .wrap(Wrap { trim: false });
 

@@ -176,6 +176,14 @@ pub const LIST_HINTS: &[KeyHint] = &[
         description: "Delete",
     },
     KeyHint {
+        key: "A",
+        description: "AI Analyse",
+    },
+    KeyHint {
+        key: "Space",
+        description: "Chat",
+    },
+    KeyHint {
         key: ":",
         description: "Command",
     },

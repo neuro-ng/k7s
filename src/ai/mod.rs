@@ -9,12 +9,15 @@
 
 pub mod antigravity;
 pub mod api_client;
+pub mod chat_log;
+pub mod context;
 pub mod prompt;
 pub mod provider;
 pub mod session;
 pub mod streaming;
 pub mod token_budget;
 
+pub use context::{build_resource_context, ContextScope};
 pub use prompt::{build as build_prompt, PromptKind};
 pub use provider::{Message, Provider, Role};
 pub use session::ChatSession;
