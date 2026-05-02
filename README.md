@@ -1,4 +1,4 @@
-cargo # k7s
+# k7s
 
 **Performance-focused, security-first Kubernetes TUI with AI-powered cluster analysis.**
 
@@ -13,15 +13,17 @@ any LLM.
 | Feature | Description |
 |---------|-------------|
 | **Fast TUI** | < 200 ms startup, < 50 ms refresh latency |
-| **All k9s resources** | Pods, Deployments, StatefulSets, DaemonSets, Services, Nodes, and more |
-| **AI Chat (`:chat`)** | Ask questions about your cluster — powered by any OpenAI-compatible API or Google Antigravity (ADC) |
+| **Full resource coverage** | Pods, Deployments, StatefulSets, DaemonSets, Services, HPAs, PDBs, LimitRanges, ResourceQuotas, EndpointSlices, StorageClasses, RBAC, CRDs, and more |
+| **AI Chat (`:chat`)** | Ask questions about your cluster — OpenAI-compatible API or Google Antigravity (ADC) |
+| **Chat history (`:chats`)** | Sessions auto-saved to disk; browse and restore any of the last 50 conversations |
 | **Security-first** | Sanitizer layer strips secrets, tokens, and passwords before any data reaches the LLM |
 | **Log analysis** | Smart log compression — 10K lines → ~200 tokens of signal |
-| **Port-forwarding** | Manage `kubectl port-forward` sessions from the TUI |
+| **Port-forward manager (`:pf`)** | Start, list, and kill `kubectl port-forward` sessions from the TUI |
+| **Expert mode (`:expert`)** | Automated AI scan for pod failures, log spam, and performance issues |
+| **Animated logo** | Cross-dissolve header logo that cycles through visual styles |
 | **Shell exec** | `kubectl exec -it` into pods without leaving the UI |
 | **Helm view** | Browse, delete, and roll back Helm releases |
 | **Plugins** | Extend with custom shell commands bound to any resource type |
-| **Themes** | Dracula, Monokai, and custom YAML skins |
 
 ---
 
@@ -61,10 +63,44 @@ k7s --namespace kube-system
 
 # Read-only mode (no mutations)
 k7s --readonly
-
-# Headless (print config and exit)
-k7s --headless
 ```
+
+---
+
+## Resource Views
+
+Type `:` to open the command prompt (Tab-completion included).
+
+### Workloads
+`:po` · `:dp` · `:sts` · `:ds` · `:rs` · `:job` · `:cj`
+
+### Networking
+`:svc` · `:ep` · `:eps` · `:ing` · `:netpol`
+
+### Config & Storage
+`:cm` · `:secret` · `:pv` · `:pvc` · `:sc`
+
+### Policy & Access
+`:hpa` · `:pdb` · `:lr` · `:rq` · `:role` · `:rb` · `:cr` · `:crb` · `:sa` · `:crd`
+
+### Cluster
+`:no` · `:ns` · `:ev`
+
+### Special Views
+
+| Command | Description |
+|---------|-------------|
+| `:ctx` | Switch kubeconfig context |
+| `:pulse` | Cluster health dashboard |
+| `:wl` | Aggregated workload overview |
+| `:xray` | Resource dependency tree |
+| `:metrics` / `:top` | Live CPU/memory sparklines |
+| `:expert` | AI-driven anomaly detection and remediation |
+| `:pf` | Active port-forward manager |
+| `:chat` | AI chat window |
+| `:chats` | Browse persisted AI chat sessions |
+| `:alias` | All registered resource aliases |
+| `:dir` | Local filesystem browser |
 
 ---
 
@@ -72,32 +108,40 @@ k7s --headless
 
 | Key | Action |
 |-----|--------|
-| `:pod` | Switch to Pod view |
-| `:deploy` | Switch to Deployment view |
-| `:svc` | Switch to Service view |
-| `:node` | Switch to Node view |
-| `:ns` | Switch to Namespace view |
-| `:helm` | Switch to Helm release view |
-| `:chat` | Open AI chat window |
-| `Enter` | Describe selected resource |
-| `l` | Stream logs (pods) |
-| `s` | Shell exec (pods) / Scale (deployments) |
-| `d` | Describe resource |
+| `d` | Describe selected resource |
 | `y` | View YAML |
-| `Ctrl-d` | Delete resource |
+| `l` | Stream logs (pods) |
+| `s` | Shell into pod / Scale workload |
 | `r` | Restart workload |
 | `t` | Trigger CronJob |
-| `c` | Cordon node |
-| `u` | Uncordon node |
+| `f` | Port-forward to selected pod |
+| `A` | Inject resource into AI chat as context |
+| `c` / `u` | Cordon / Uncordon node |
+| `D` | Delete resource (confirm dialog) — kill port-forward in `:pf` |
 | `/` | Filter rows |
-| `q` | Quit / close panel |
-| `?` | Help |
+| `Enter` | Drill down (pod → containers, etc.) |
+| `q` | Quit / go back |
+| `?` | Help overlay |
+
+---
+
+## Port-Forward Manager
+
+Press `f` on any pod to start a port-forward, or annotate resources for automatic setup:
+
+```yaml
+metadata:
+  annotations:
+    k7s.io/portforward: "9090:8080,5432:5432"
+```
+
+Open `:pf` to list all active forwards. Press `D` on any row to kill it.
 
 ---
 
 ## AI Chat
 
-k7s includes a built-in AI assistant that can analyse your cluster without exposing secrets.
+k7s includes a built-in AI assistant that analyses your cluster without exposing secrets.
 
 ### Setup
 
@@ -105,69 +149,83 @@ k7s includes a built-in AI assistant that can analyse your cluster without expos
 
 ```bash
 export K7S_LLM_API_KEY="sk-..."
-# Then in ~/.config/k7s/config.yaml:
-# ai:
-#   provider: api
-#   endpoint: https://api.openai.com/v1/chat/completions
-#   model: gpt-4o
+```
+
+`~/.config/k7s/config.yaml`:
+```yaml
+k7s:
+  ai:
+    provider: api
+    endpoint: https://api.openai.com/v1/chat/completions
+    model: gpt-4o
 ```
 
 **Option B — Google Antigravity (ADC)**
 
 ```bash
 gcloud auth application-default login
-# In config.yaml:
-# ai:
-#   provider: antigravity
+```
+
+`~/.config/k7s/config.yaml`:
+```yaml
+k7s:
+  ai:
+    provider: antigravity
 ```
 
 ### Capabilities
 
-| Capability | Command | What it sends |
-|-----------|---------|---------------|
-| Error analysis | `:chat` → ask about a failing pod | Pod metadata + events (sanitized) |
-| Log troubleshooting | `l` on a pod → `a` for AI | Compressed log summary |
-| Efficiency review | `:chat` → efficiency | Resource requests/limits across workloads |
-| Cluster health | `:chat` → health | Node conditions + recent events |
-| RBAC audit | `:chat` → rbac | Role/binding structure (no tokens) |
+| Capability | How |
+|-----------|-----|
+| Error analysis | `:chat` → ask about a failing pod |
+| Log troubleshooting | `l` on a pod, then `A` to add to chat |
+| Context injection | `A` on any resource injects sanitized metadata + events |
+| Efficiency review | `:chat` → ask about resource sizing |
+| Cluster health | `:chat` → ask about overall health |
+| Automated scan | `:expert` for AI-driven anomaly detection |
+
+### Chat history
+
+Sessions are saved automatically to `~/.local/state/k7s/chat_logs/`. The most recent session is restored on startup. Browse all sessions with `:chats` (up to 50 kept).
 
 ### Security guarantee
 
-The sanitizer layer **always** runs before any data reaches the LLM:
+The sanitizer **always** runs before any data reaches the LLM:
 
 - All `v1/Secret` data fields are stripped
-- Environment variable *values* are stripped (names are kept)
-- ConfigMap *values* are stripped (keys are kept)
-- Any value matching a secret pattern (JWT, connection string, API key regex) is redacted
-- Logs are compressed and deduplicated — raw log streams never leave the cluster
+- Environment variable *values* are stripped (names kept)
+- ConfigMap *values* are stripped (keys kept)
+- Values matching secret patterns (JWT, connection strings, API keys) are redacted
+- Logs are compressed — raw streams never leave the process
 
 ---
 
 ## Configuration
 
-Config file: `~/.config/k7s/config.yaml`
+`~/.config/k7s/config.yaml`:
 
 ```yaml
 k7s:
-  refreshRate: 2           # seconds between resource list refreshes
-  readOnly: false          # disable all mutating operations
+  refreshRate: 2
+  readOnly: false
   ui:
-    skin: dracula          # built-in: default, dracula, monokai; or custom YAML
+    skin: dracula                 # default, dracula, monokai, or custom YAML
     enableMouse: false
+    logoTransitionSpeed: 3        # logo animation speed 1–10
   logger:
-    tail: 200              # lines to tail on log open
-    buffer: 5000           # ring buffer size
+    tail: 200
+    buffer: 5000
   ai:
-    provider: api          # "api" or "antigravity"
+    provider: api
     tokenBudget:
       maxPerSession: 100000
       maxPerQuery: 4000
       warnAt: 80000
     sanitizer:
-      strictMode: true     # default-deny (recommended)
+      strictMode: true
       auditLog: true
       customPatterns:
-        - "(?i)my-internal-secret-prefix\\s*[:=]\\s*\\S+"
+        - "(?i)my-secret-prefix\\s*[:=]\\s*\\S+"
 ```
 
 ### Environment variables
@@ -185,7 +243,7 @@ k7s:
 
 ## Plugins
 
-Add custom actions to any resource view via `~/.config/k7s/plugins.yaml`:
+`~/.config/k7s/plugins.yaml`:
 
 ```yaml
 kubectl-debug:
@@ -202,27 +260,6 @@ Variables: `$NAME`, `$NAMESPACE`, `$CONTEXT`, `$CLUSTER`
 
 ---
 
-## Skins
-
-Custom skin at `~/.config/k7s/skins/my-theme.yaml`:
-
-```yaml
-general:
-  fg: "#cdd6f4"
-  bg: "#1e1e2e"
-header:
-  fg: "#89b4fa"
-  bg: "#1e1e2e"
-table_header:
-  fg: "#a6e3a1"
-  bg: "#1e1e2e"
-selected_row:
-  fg: "#1e1e2e"
-  bg: "#89b4fa"
-```
-
----
-
 ## Performance
 
 | Metric | Target | Status |
@@ -233,33 +270,18 @@ selected_row:
 | Screen refresh latency | < 50 ms | ✅ |
 | Log sanitization throughput | > 50K lines/sec | ✅ |
 
-Run benchmarks: `cargo bench`
-
 ---
 
 ## Building & Testing
 
 ```bash
-# Debug build
-cargo build
-
-# Release build (optimized, stripped)
-cargo build --release
-
-# Tests
-cargo test
-
-# Sanitizer tests (critical path — run these first)
-cargo test sanitizer
-
-# Benchmarks
-cargo bench
-
-# Lint
-cargo clippy -- -D warnings
-
-# Format check
+cargo build                          # debug
+cargo build --release                # optimized
+cargo test                           # all tests
+cargo test sanitizer                 # sanitizer tests (critical path)
+cargo clippy --all-targets -- -D warnings
 cargo fmt --check
+cargo bench
 ```
 
 ---

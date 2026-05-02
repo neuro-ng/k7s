@@ -1,111 +1,231 @@
 # Getting Started with k7s
 
-Welcome to **k7s**, a high-performance, security-first Kubernetes TUI (Terminal UI) with built-in AI capabilities. 
+Welcome to **k7s**, a high-performance, security-first Kubernetes TUI (Terminal UI) with built-in AI capabilities.
 
 This guide will walk you through the essential steps to get `k7s` up and running, and teach you how to navigate its interface effectively.
 
 ## Prerequisites
+
 - **Rust** 1.77+
 - **kubectl** available in your `$PATH`
-- A valid `kubeconfig` file usually at `~/.kube/config` indicating your connection to a Kubernetes cluster.
+- A valid `kubeconfig` file (usually at `~/.kube/config`) pointing to a Kubernetes cluster
 
 ## 1. Installation
-
-You can run `k7s` either by compiling it from source or via Docker.
 
 ### Building from Source
 
 ```bash
-git clone https://github.com/your-org/k7s
+git clone https://github.com/neuro-ng/k7s
 cd k7s
 cargo install --path .
 ```
 
 ### Running with Docker
 
-Mount your kubeconfig file and the k7s config folder to use the pre-built Docker image:
-
 ```bash
 docker run --rm -it \
   -v "$HOME/.kube:/root/.kube:ro" \
   -v "$HOME/.config/k7s:/root/.config/k7s:ro" \
-  ghcr.io/your-org/k7s:latest
+  ghcr.io/neuro-ng/k7s:latest
 ```
 
 ## 2. Launching k7s
 
-You can start `k7s` directly from your terminal. It will automatically use the active context defined by your `kubeconfig`.
-
 ```bash
-# Starts the TUI using the active context
+# Active kubeconfig context
 k7s
 
-# Connect exactly to a specific context
+# Specific context
 k7s --context my-cluster
 
-# Open it filtering to watch a particular namespace
+# Filter to a namespace
 k7s --namespace kube-system
 
-# Launch in Read-only mode (prevents accidental deletions/scaling)
+# Read-only mode (prevents accidental mutations)
 k7s --readonly
+
+# Debug logging
+k7s -l debug
 ```
 
-## 3. Navigating the TUI
+## 3. The Interface
 
-`k7s` is driven entirely by simple keyboard shortcuts. Type `?` at any time to see the help menu.
+The header shows your cluster context and connection status on the left, and an animated k7s logo on the right that cycles through visual styles. The footer displays available key actions for the active view.
 
-### Switching Views
-To switch the main resource view, use colon commands (similar to vim):
-- `:pod` - View Pods
-- `:deploy` - View Deployments
-- `:svc` - View Services
-- `:node` - View Nodes
-- `:ns` - View Namespaces
-- `:helm` - View Helm releases
+Type `:` to open the command prompt (autocomplete included), or `?` for the help overlay.
 
-### Action Keys
-Use these keys on any selected item to manage the resource:
-- `Enter` or `d` - Describe resource
-- `l` - Stream logs (useful on pods)
-- `s` - Shell into pod, or Scale a deployment
-- `y` - View YAML of the active resource
-- `Ctrl-d` - Delete resource
-- `r` - Restart workloads
-- `/` - Open the search/filter dialog
-- `q` - Quit the application or go back to the previous screen
+## 4. Navigating Resources
 
-## 4. Setting up the AI Assistant
+Switch views with colon commands. All aliases support Tab-completion in the prompt.
 
-One of `k7s`'s standout features is its built-in AI assistant to help you troubleshoot your cluster quickly via the `:chat` command. Crucially, log secrets and sensitive values are explicitly sanitized and removed before data is passed to the AI platform. 
+### Workloads
 
-### To use an OpenAI-compatible API
-Export the key and update your configuration file:
+| Command | Resource |
+|---------|----------|
+| `:po` / `:pod` | Pods |
+| `:dp` / `:deploy` | Deployments |
+| `:sts` / `:statefulset` | StatefulSets |
+| `:ds` / `:daemonset` | DaemonSets |
+| `:rs` / `:replicaset` | ReplicaSets |
+| `:job` | Jobs |
+| `:cj` / `:cronjob` | CronJobs |
+
+### Networking
+
+| Command | Resource |
+|---------|----------|
+| `:svc` / `:service` | Services |
+| `:ep` / `:endpoints` | Endpoints |
+| `:eps` / `:endpointslice` | EndpointSlices |
+| `:ing` / `:ingress` | Ingresses |
+| `:netpol` / `:networkpolicy` | NetworkPolicies |
+
+### Config & Storage
+
+| Command | Resource |
+|---------|----------|
+| `:cm` / `:configmap` | ConfigMaps |
+| `:secret` | Secrets |
+| `:pv` | PersistentVolumes |
+| `:pvc` | PersistentVolumeClaims |
+| `:sc` / `:storageclass` | StorageClasses |
+
+### Policy & Access
+
+| Command | Resource |
+|---------|----------|
+| `:hpa` | HorizontalPodAutoscalers |
+| `:pdb` | PodDisruptionBudgets |
+| `:lr` / `:limitrange` | LimitRanges |
+| `:rq` / `:resourcequota` | ResourceQuotas |
+| `:role` | Roles |
+| `:rb` / `:rolebinding` | RoleBindings |
+| `:cr` / `:clusterrole` | ClusterRoles |
+| `:crb` / `:clusterrolebinding` | ClusterRoleBindings |
+| `:sa` / `:serviceaccount` | ServiceAccounts |
+| `:crd` | CustomResourceDefinitions |
+
+### Cluster
+
+| Command | Resource |
+|---------|----------|
+| `:no` / `:node` | Nodes |
+| `:ns` / `:namespace` | Namespaces |
+| `:ev` / `:event` | Events |
+
+### Special Views
+
+| Command | Description |
+|---------|-------------|
+| `:ctx` / `:context` | Switch kubeconfig context |
+| `:alias` / `:aliases` | Browse all known resource aliases |
+| `:pulse` | Cluster health dashboard |
+| `:wl` / `:workload` | Aggregated workload overview |
+| `:xray` | Resource dependency tree |
+| `:metrics` / `:top` | Live CPU/memory sparklines |
+| `:expert` | AI-driven anomaly detection |
+| `:dir` | Local filesystem browser |
+| `:pf` / `:portforwards` | Active port-forward manager |
+| `:chat` | AI chat window |
+| `:chats` / `:chat-history` | Browse persisted AI chat sessions |
+
+## 5. Key Actions
+
+Actions appear in the footer and depend on the selected resource type.
+
+| Key | Action |
+|-----|--------|
+| `d` | Describe selected resource |
+| `y` | View YAML |
+| `l` | Stream logs (Pods) |
+| `s` | Shell into pod / Scale workload |
+| `r` | Restart workload |
+| `t` | Trigger CronJob manually |
+| `c` / `u` | Cordon / Uncordon node |
+| `f` | Port-forward to selected pod |
+| `D` | Delete resource (with confirmation) — or kill port-forward in `:pf` |
+| `A` | Inject selected resource into AI chat as context |
+| `/` | Filter rows |
+| `Enter` | Drill down (pods → containers, etc.) |
+| `q` | Go back / quit |
+| `?` | Help overlay |
+
+## 6. Port-Forward Manager
+
+Start a port-forward from any pod view by pressing `f`, or launch them automatically via the `k7s.io/portforward` annotation:
+
+```yaml
+metadata:
+  annotations:
+    k7s.io/portforward: "9090:8080,5432:5432"
+```
+
+Open `:pf` to see all active forwards. Press `D` on any row to kill it.
+
+## 7. AI Assistant
+
+k7s has a built-in AI assistant. All cluster data is sanitized before it leaves the process — secrets, tokens, and raw config values are never sent to the LLM.
+
+### OpenAI-compatible API
+
 ```bash
 export K7S_LLM_API_KEY="sk-..."
 ```
-Then update `~/.config/k7s/config.yaml`:
+
+`~/.config/k7s/config.yaml`:
+
 ```yaml
-ai:
-  provider: api
-  endpoint: https://api.openai.com/v1/chat/completions
-  model: gpt-4o
+k7s:
+  ai:
+    provider: api
+    endpoint: https://api.openai.com/v1/chat/completions
+    model: gpt-4o
 ```
 
-### To use Google Antigravity (ADC)
-Simply login via gcloud:
+### Google Antigravity (ADC)
+
 ```bash
 gcloud auth application-default login
 ```
-Set in `config.yaml`:
+
+`~/.config/k7s/config.yaml`:
+
 ```yaml
-ai:
-  provider: antigravity
+k7s:
+  ai:
+    provider: antigravity
 ```
 
-### Using AI Features
-- **Open a conversation:** Type `:chat` and ask any question about standard cluster health, such as "Why is that pod failing?".
-- **Analyzing a selected pod's logs:** Type `l` to stream logs, then `a` to let the AI summarize exceptions and signals concisely.
+### Chat commands
 
-## What's Next?
-- Check out `~/.config/k7s/config.yaml` to customize refresh rates, skins/themes, and configure sanitizer limits.
-- Take a look at `~/.config/k7s/plugins.yaml` if you want to write your own custom action hooks.
+- **`:chat`** — Open the AI chat window. Ask questions about your cluster ("Why is this pod crash-looping?").
+- **`A`** — While browsing any resource, press `A` to inject its sanitized metadata, events, and log summary as context into the current chat session.
+- **`:chats`** — Browse previously saved chat sessions. Sessions are saved automatically and the most recent one is restored on startup (up to 50 kept).
+
+## 8. Configuration
+
+`~/.config/k7s/config.yaml` — selected options:
+
+```yaml
+k7s:
+  refreshRate: 2          # seconds between auto-refresh
+  readOnly: false
+  ui:
+    enableMouse: false
+    logoTransitionSpeed: 3   # logo animation speed 1–10 (default 3)
+  ai:
+    provider: api
+    tokenBudget:
+      maxPerSession: 100000
+      maxPerQuery: 4000
+      warnAt: 80000
+    sanitizer:
+      strictMode: true
+      auditLog: true
+```
+
+Custom redaction patterns can be added under `sanitizer.customPatterns` (regex strings).
+
+## 9. Custom Plugins
+
+Add action hooks in `~/.config/k7s/plugins.yaml` to run shell commands against selected resources. See `CLAUDE.md` for the plugin dispatch model.
