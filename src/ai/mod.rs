@@ -9,7 +9,10 @@
 
 pub mod antigravity;
 pub mod api_client;
+pub mod azure;
+pub mod bedrock;
 pub mod chat_log;
+pub mod ollama;
 pub mod context;
 pub mod prompt;
 pub mod provider;

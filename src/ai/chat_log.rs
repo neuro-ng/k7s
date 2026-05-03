@@ -88,6 +88,57 @@ impl ChatLog {
     pub fn date_label(&self) -> String {
         self.created_at.format("%Y-%m-%d %H:%M").to_string()
     }
+
+    /// Render this session as a Markdown document suitable for export.
+    ///
+    /// System messages are excluded (they contain internal prompt scaffolding).
+    /// Each user and assistant turn is labelled with a timestamp and separated
+    /// by horizontal rules so the document is readable in any Markdown viewer.
+    pub fn to_markdown(&self) -> String {
+        let mut out = String::with_capacity(4096);
+
+        // ── Header ─────────────────────────────────────────────────────────────
+        out.push_str("# k7s AI Chat Export\n\n");
+        if let Some(label) = &self.context_label {
+            out.push_str(&format!("**Context:** {label}  \n"));
+        }
+        out.push_str(&format!(
+            "**Date:** {}  \n",
+            self.created_at.format("%Y-%m-%d %H:%M UTC")
+        ));
+        out.push_str(&format!("**Session:** {}  \n", self.id));
+        if self.tokens_used > 0 {
+            out.push_str(&format!("**Tokens used:** {}  \n", self.tokens_used));
+        }
+        out.push_str("\n---\n\n## Conversation\n\n");
+
+        // ── Messages ───────────────────────────────────────────────────────────
+        let turns: Vec<_> = self
+            .messages
+            .iter()
+            .filter(|m| m.role != Role::System)
+            .collect();
+
+        if turns.is_empty() {
+            out.push_str("*No messages in this session.*\n");
+            return out;
+        }
+
+        for msg in turns {
+            let label = match msg.role {
+                Role::User => "**User**",
+                Role::Assistant => "**Assistant**",
+                Role::System => continue,
+            };
+            out.push_str(&format!(
+                "{label} · {}\n\n{}\n\n---\n\n",
+                msg.timestamp.format("%H:%M:%S"),
+                msg.content.trim()
+            ));
+        }
+
+        out
+    }
 }
 
 /// Manages the on-disk chat log store.
@@ -265,5 +316,60 @@ mod tests {
         let decoded: ChatLog = serde_json::from_str(&json).unwrap();
         assert_eq!(decoded.id, log.id);
         assert_eq!(decoded.messages.len(), 1);
+    }
+
+    // ── to_markdown() tests ────────────────────────────────────────────────────
+
+    #[test]
+    fn markdown_has_header() {
+        let log = ChatLog::new(None);
+        let md = log.to_markdown();
+        assert!(md.starts_with("# k7s AI Chat Export"));
+    }
+
+    #[test]
+    fn markdown_includes_context_label() {
+        let mut log = ChatLog::new(Some("pods/web-abc · default".to_owned()));
+        log.tokens_used = 150;
+        let md = log.to_markdown();
+        assert!(md.contains("pods/web-abc · default"));
+        assert!(md.contains("150"));
+    }
+
+    #[test]
+    fn markdown_excludes_system_messages() {
+        let mut log = ChatLog::new(None);
+        log.messages.push(ChatLogMessage::new(Role::System, "Internal system prompt"));
+        log.messages.push(ChatLogMessage::new(Role::User, "Hello?"));
+        let md = log.to_markdown();
+        assert!(!md.contains("Internal system prompt"));
+        assert!(md.contains("Hello?"));
+    }
+
+    #[test]
+    fn markdown_labels_user_and_assistant() {
+        let mut log = ChatLog::new(None);
+        log.messages.push(ChatLogMessage::new(Role::User, "What is wrong?"));
+        log.messages.push(ChatLogMessage::new(Role::Assistant, "The pod is crashlooping."));
+        let md = log.to_markdown();
+        assert!(md.contains("**User**"));
+        assert!(md.contains("**Assistant**"));
+        assert!(md.contains("What is wrong?"));
+        assert!(md.contains("The pod is crashlooping."));
+    }
+
+    #[test]
+    fn markdown_empty_session_has_no_messages_notice() {
+        let log = ChatLog::new(None);
+        let md = log.to_markdown();
+        assert!(md.contains("No messages"));
+    }
+
+    #[test]
+    fn markdown_hides_tokens_when_zero() {
+        let log = ChatLog::new(None);
+        assert_eq!(log.tokens_used, 0);
+        let md = log.to_markdown();
+        assert!(!md.contains("Tokens used"));
     }
 }

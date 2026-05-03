@@ -174,6 +174,34 @@ pub struct AiConfig {
     /// Vertex AI region for the Antigravity provider. Default: "us-central1".
     #[serde(skip_serializing_if = "Option::is_none")]
     pub gcp_region: Option<String>,
+    /// AWS region for the Bedrock provider (e.g. "us-east-1").
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub aws_region: Option<String>,
+    /// AWS credentials profile name (default: "default", or use env vars).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub aws_profile: Option<String>,
+    /// AWS Bedrock model ID override.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub aws_model: Option<String>,
+    /// Ollama server base URL (e.g. `http://localhost:11434`).
+    /// Defaults to `OLLAMA_HOST` env var, then `http://localhost:11434`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ollama_host: Option<String>,
+    /// Ollama model name (e.g. `"llama3.2"`, `"mistral"`, `"codellama"`).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ollama_model: Option<String>,
+    /// Azure OpenAI full deployment endpoint URL.
+    /// Example: `https://my-resource.openai.azure.com/openai/deployments/gpt-4o/chat/completions`
+    /// Also reads `AZURE_OPENAI_ENDPOINT` env var.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub azure_endpoint: Option<String>,
+    /// Azure OpenAI API key (sent as `api-key` header).
+    /// Prefer the `AZURE_OPENAI_API_KEY` env var over storing here.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub azure_api_key: Option<String>,
+    /// Azure OpenAI API version query parameter. Default: `"2024-02-01"`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub azure_api_version: Option<String>,
     pub token_budget: TokenBudgetConfig,
     pub sanitizer: SanitizerConfig,
 }
@@ -187,6 +215,14 @@ impl Default for AiConfig {
             model: None,
             gcp_project: None,
             gcp_region: None,
+            aws_region: None,
+            aws_profile: None,
+            aws_model: None,
+            ollama_host: None,
+            ollama_model: None,
+            azure_endpoint: None,
+            azure_api_key: None,
+            azure_api_version: None,
             token_budget: TokenBudgetConfig::default(),
             sanitizer: SanitizerConfig::default(),
         }

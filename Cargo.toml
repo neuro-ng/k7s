@@ -82,6 +82,10 @@ indexmap = "2"
 # Date/time for rollout restart timestamps
 chrono = { version = "0.4", features = ["serde"] }
 
+# Cryptographic primitives for SigV4 signing (AWS Bedrock)
+sha2 = "0.10"
+hmac = "0.12"
+
 # Cancellation token for graceful shutdown propagation
 tokio-util = { version = "0.7", features = ["rt"] }
 

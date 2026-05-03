@@ -15,6 +15,9 @@ use tokio::sync::{mpsc, RwLock};
 
 use crate::ai::antigravity::{AntigravityConfig, AntigravityProvider};
 use crate::ai::api_client::{ApiKeyProvider, ApiKeyProviderConfig};
+use crate::ai::bedrock::{BedrockProvider, BedrockProviderConfig};
+use crate::ai::azure::{AzureConfig, AzureOpenAIProvider};
+use crate::ai::ollama::{OllamaConfig, OllamaProvider};
 use crate::ai::context::{build_resource_context, ContextScope};
 use crate::ai::provider::{Provider, Role};
 use crate::ai::session::ChatSession;
@@ -1139,6 +1142,73 @@ fn build_provider(config: &Config) -> Option<Arc<dyn Provider>> {
             );
             Some(Arc::new(AntigravityProvider::new(cfg)))
         }
+        "bedrock" => {
+            let region = ai
+                .aws_region
+                .clone()
+                .filter(|r| !r.is_empty())
+                .or_else(|| std::env::var("AWS_DEFAULT_REGION").ok())
+                .or_else(|| std::env::var("AWS_REGION").ok())
+                .unwrap_or_else(|| crate::ai::bedrock::DEFAULT_REGION.to_owned());
+            let cfg = BedrockProviderConfig {
+                region,
+                profile: ai.aws_profile.clone(),
+                model: ai
+                    .aws_model
+                    .clone()
+                    .unwrap_or_else(|| crate::ai::bedrock::DEFAULT_MODEL.to_owned()),
+                max_tokens: 2048,
+                temperature: 0.3,
+            };
+            tracing::info!(region = %cfg.region, model = %cfg.model, "Bedrock provider configured");
+            Some(Arc::new(BedrockProvider::new(cfg)))
+        }
+        "azure" => {
+            let endpoint = ai
+                .azure_endpoint
+                .clone()
+                .filter(|e| !e.is_empty())
+                .or_else(|| std::env::var("AZURE_OPENAI_ENDPOINT").ok())
+                .unwrap_or_default();
+            let api_key = ai
+                .azure_api_key
+                .clone()
+                .filter(|k| !k.is_empty())
+                .or_else(|| std::env::var("AZURE_OPENAI_API_KEY").ok())
+                .unwrap_or_default();
+            let cfg = AzureConfig {
+                endpoint: endpoint.clone(),
+                api_key,
+                api_version: ai
+                    .azure_api_version
+                    .clone()
+                    .unwrap_or_else(|| crate::ai::azure::DEFAULT_API_VERSION.to_owned()),
+                model: ai.model.clone().unwrap_or_else(|| "gpt-4o".to_owned()),
+                max_tokens: 2048,
+                temperature: 0.3,
+            };
+            tracing::info!(endpoint = %cfg.endpoint, model = %cfg.model, "Azure OpenAI provider configured");
+            Some(Arc::new(AzureOpenAIProvider::new(cfg)))
+        }
+        "ollama" => {
+            let host = ai
+                .ollama_host
+                .clone()
+                .filter(|h| !h.is_empty())
+                .or_else(|| std::env::var("OLLAMA_HOST").ok())
+                .unwrap_or_else(|| crate::ai::ollama::DEFAULT_HOST.to_owned());
+            let cfg = OllamaConfig {
+                host: host.clone(),
+                model: ai
+                    .ollama_model
+                    .clone()
+                    .unwrap_or_else(|| crate::ai::ollama::DEFAULT_MODEL.to_owned()),
+                max_tokens: 2048,
+                temperature: 0.3,
+            };
+            tracing::info!(host = %cfg.host, model = %cfg.model, "Ollama provider configured");
+            Some(Arc::new(OllamaProvider::new(cfg)))
+        }
         _ => {
             // Default: API key provider (OpenAI-compatible).
             let api_key: String = ai
@@ -1559,6 +1629,9 @@ fn handle_key_event(app: &mut App, key: crossterm::event::KeyEvent) {
             }
             ChatAction::Submit(text) => {
                 submit_chat_message(app, text);
+            }
+            ChatAction::Export => {
+                export_current_chat(app);
             }
             ChatAction::None => {}
         }
@@ -2158,6 +2231,17 @@ fn handle_key_event(app: &mut App, key: crossterm::event::KeyEvent) {
                 }
             }
         }
+        Action::ExportChat => {
+            // E key in the Chats browser — export the selected session to Markdown.
+            if app.browser.as_ref().map(|b| b.title.as_str()) == Some("Chats") {
+                if let Some(id) = app.browser.as_ref().and_then(|b| b.selected_name()) {
+                    if let Some(log) = app.chat_log_store.load(&id) {
+                        export_chat_log_to_file(app, &log);
+                    }
+                }
+            }
+        }
+
         Action::VulnScan => {
             // Scan the image of the selected pod / container.
             let image = app.browser.as_ref().and_then(|b| {
@@ -2350,6 +2434,43 @@ fn run_plugin(app: &mut App, plugin: &Plugin, ctx: &PluginContext) {
 }
 
 /// Submit a user message to the LLM, update the widget, and spawn the async call.
+/// Write the currently-active chat session to a Markdown file.
+fn export_current_chat(app: &mut App) {
+    let log = app
+        .chat_session
+        .as_ref()
+        .and_then(|s| s.active_log_id.as_ref())
+        .and_then(|id| app.chat_log_store.load(id));
+
+    let log = log.unwrap_or_else(|| {
+        let scope = app.chat.scope.clone();
+        app.chat_session
+            .as_ref()
+            .map(|s| s.export_log(scope))
+            .unwrap_or_else(|| crate::ai::chat_log::ChatLog::new(None))
+    });
+    export_chat_log_to_file(app, &log);
+}
+
+/// Write `log` to `~/.local/state/k7s/exports/{id}.md` and flash the path.
+fn export_chat_log_to_file(app: &mut App, log: &crate::ai::chat_log::ChatLog) {
+    let export_dir = ConfigDirs::resolve()
+        .map(|d| d.state.join("exports"))
+        .unwrap_or_else(|_| std::path::PathBuf::from("."));
+    if let Err(e) = std::fs::create_dir_all(&export_dir) {
+        app.flash(format!("Export failed: {e}"), Duration::from_secs(3));
+        return;
+    }
+    let path = export_dir.join(format!("{}.md", log.id));
+    match std::fs::write(&path, log.to_markdown()) {
+        Ok(()) => app.flash(
+            format!("Exported to {}", path.display()),
+            Duration::from_secs(4),
+        ),
+        Err(e) => app.flash(format!("Export failed: {e}"), Duration::from_secs(3)),
+    }
+}
+
 fn submit_chat_message(app: &mut App, text: String) {
     // Show the user message immediately.
     app.chat.push_message(Role::User, text.clone());

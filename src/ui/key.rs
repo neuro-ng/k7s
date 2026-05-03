@@ -76,6 +76,8 @@ pub enum Action {
     SetImage,
     /// Scan the selected image for vulnerabilities.
     VulnScan,
+    /// Export the selected chat session (or current session) to Markdown.
+    ExportChat,
     /// An action that has no semantic mapping (unhandled key press).
     Unhandled(KeyCode),
 }
@@ -133,6 +135,7 @@ pub fn resolve(event: &KeyEvent) -> Action {
         // AI
         (Char(' '), false) => Action::Chat, // space opens chat
         (Char('A'), false) => Action::AiAnalyse,
+        (Char('E'), false) => Action::ExportChat,
 
         (code, _) => Action::Unhandled(code),
     }

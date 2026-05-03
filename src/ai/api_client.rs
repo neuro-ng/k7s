@@ -4,10 +4,12 @@
 //! endpoint: OpenAI, Anthropic (via shim), Azure OpenAI, local Ollama, etc.
 
 use async_trait::async_trait;
+use futures::StreamExt as _;
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
+use tokio::sync::mpsc;
 
-use crate::ai::provider::{Message, Provider, Role};
+use crate::ai::provider::{Message, Provider, Role, StreamChunk};
 
 /// Configuration for the API key provider.
 #[derive(Debug, Clone)]
@@ -68,6 +70,7 @@ struct ApiMessage<'a> {
     content: &'a str,
 }
 
+/// Non-streaming response.
 #[derive(Deserialize)]
 struct ChatResponse {
     choices: Vec<Choice>,
@@ -81,6 +84,23 @@ struct Choice {
 #[derive(Deserialize)]
 struct ResponseMessage {
     content: String,
+}
+
+/// SSE streaming response — one event per `data:` line.
+#[derive(Deserialize)]
+struct SseEvent {
+    choices: Vec<SseChoice>,
+}
+
+#[derive(Deserialize)]
+struct SseChoice {
+    delta: SseDelta,
+}
+
+#[derive(Deserialize)]
+struct SseDelta {
+    #[serde(default)]
+    content: Option<String>,
 }
 
 // ─── Provider impl ─────────────────────────────────────────────────────────────
@@ -132,6 +152,99 @@ impl Provider for ApiKeyProvider {
             .next()
             .map(|c| c.message.content)
             .ok_or_else(|| anyhow::anyhow!("LLM response contained no choices"))
+    }
+
+    async fn stream(
+        &self,
+        messages: &[Message],
+        tx: mpsc::Sender<StreamChunk>,
+    ) -> anyhow::Result<()> {
+        let api_messages: Vec<ApiMessage> = messages
+            .iter()
+            .map(|m| ApiMessage {
+                role: match m.role {
+                    Role::System => "system",
+                    Role::User => "user",
+                    Role::Assistant => "assistant",
+                },
+                content: &m.content,
+            })
+            .collect();
+
+        // Build request with `stream: true` injected as an extra field.
+        let body = serde_json::json!({
+            "model": self.config.model,
+            "messages": api_messages,
+            "max_tokens": self.config.max_tokens,
+            "temperature": self.config.temperature,
+            "stream": true,
+        });
+
+        let response = self
+            .client
+            .post(&self.config.endpoint)
+            .bearer_auth(&self.config.api_key)
+            .json(&body)
+            .send()
+            .await
+            .map_err(|e| anyhow::anyhow!("LLM stream request failed: {e}"))?;
+
+        if !response.status().is_success() {
+            let status = response.status();
+            let body_text = response.text().await.unwrap_or_default();
+            let _ = tx
+                .send(StreamChunk::Error(format!("LLM API error {status}: {body_text}")))
+                .await;
+            return Ok(());
+        }
+
+        let mut byte_stream = response.bytes_stream();
+        let mut line_buf = String::new();
+
+        while let Some(item) = byte_stream.next().await {
+            let bytes = match item {
+                Ok(b) => b,
+                Err(e) => {
+                    let _ = tx.send(StreamChunk::Error(e.to_string())).await;
+                    return Ok(());
+                }
+            };
+
+            line_buf.push_str(&String::from_utf8_lossy(&bytes));
+
+            // OpenAI SSE: each event is prefixed with "data: " on its own line.
+            while let Some(newline) = line_buf.find('\n') {
+                let line = line_buf[..newline].trim().to_owned();
+                line_buf = line_buf[newline + 1..].to_owned();
+
+                let data = match line.strip_prefix("data: ") {
+                    Some(d) => d.trim(),
+                    None => continue,
+                };
+
+                if data == "[DONE]" {
+                    let _ = tx.send(StreamChunk::Done).await;
+                    return Ok(());
+                }
+
+                if let Ok(event) = serde_json::from_str::<SseEvent>(data) {
+                    if let Some(content) = event
+                        .choices
+                        .into_iter()
+                        .next()
+                        .and_then(|c| c.delta.content)
+                        .filter(|c| !c.is_empty())
+                    {
+                        if tx.send(StreamChunk::Delta(content)).await.is_err() {
+                            return Ok(());
+                        }
+                    }
+                }
+            }
+        }
+
+        let _ = tx.send(StreamChunk::Done).await;
+        Ok(())
     }
 }
 

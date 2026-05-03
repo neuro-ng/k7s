@@ -33,6 +33,8 @@ pub enum ChatAction {
     Submit(String),
     /// User pressed Esc / q — close the chat window.
     Close,
+    /// User pressed Ctrl+S — export the current session to Markdown.
+    Export,
     /// No action needed.
     None,
 }
@@ -108,6 +110,11 @@ impl ChatWidget {
                     self.input.pop();
                 }
                 ChatAction::None
+            }
+
+            // Ctrl+S exports the current session to a Markdown file.
+            KeyCode::Char('s') if event.modifiers.contains(KeyModifiers::CONTROL) => {
+                ChatAction::Export
             }
 
             KeyCode::Char(c) => {

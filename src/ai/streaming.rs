@@ -1,45 +1,26 @@
-//! Streaming response display — Phase 12.15.
+//! Streaming response display.
 //!
-//! Wraps the `Provider::complete()` call in a streaming abstraction so the
-//! TUI can update the chat window token-by-token (or chunk-by-chunk) as the
-//! LLM produces output, rather than waiting for the full response before
-//! rendering.
+//! Wraps the `Provider::stream()` call in an async abstraction so the TUI
+//! can update the chat window token-by-token as the LLM produces output.
 //!
 //! # Design
 //!
-//! Real streaming (SSE / chunked HTTP) requires provider-specific code.
-//! This module provides:
-//!
 //! 1. `StreamHandle` — a `tokio::sync::mpsc::Receiver<StreamChunk>` wrapped
 //!    in a newtype so the TUI can poll it without knowing the provider details.
-//! 2. `StreamChunk` — either a text delta or a terminal `Done` / `Error`.
-//! 3. `stream_complete()` — a shim that calls `Provider::complete()` and
-//!    re-broadcasts the full response word-by-word so the TUI sees a stream
-//!    even when the provider does not support true streaming.
-//! 4. `StreamingSession` — a thin wrapper around `ChatSession` that sends
-//!    messages through a `StreamHandle`.
-//!
-//! When a future provider adds native SSE streaming, only step 3 needs to be
-//! replaced; the TUI and session layers remain unchanged.
+//! 2. `StreamChunk` — re-exported from `provider` (defined there to avoid a
+//!    circular dependency with the `stream()` trait method).
+//! 3. `stream_complete()` — spawns a task that calls `provider.stream()`.
+//!    Providers with native SSE override `stream()`; others fall back to the
+//!    `complete()` + word-split default in `Provider`.
+//! 4. `StreamingSend` — bundles the handle with budget metadata for callers.
 
 use tokio::sync::mpsc;
 
+// StreamChunk is defined in provider.rs to avoid a circular dep.
+pub use crate::ai::provider::StreamChunk;
 use crate::ai::provider::{Message, Provider};
 use crate::ai::session::{ChatSession, SessionError};
 use crate::ai::token_budget::estimate_tokens;
-
-// ─── StreamChunk ─────────────────────────────────────────────────────────────
-
-/// A single event emitted by a streaming LLM response.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum StreamChunk {
-    /// A text delta (one or more characters / tokens).
-    Delta(String),
-    /// The stream ended successfully.
-    Done,
-    /// The stream ended with an error.
-    Error(String),
-}
 
 // ─── StreamHandle ─────────────────────────────────────────────────────────────
 
@@ -85,10 +66,11 @@ impl StreamHandle {
 
 // ─── stream_complete() ────────────────────────────────────────────────────────
 
-/// Kick off a `Provider::complete()` call and return a `StreamHandle`.
+/// Kick off a `Provider::stream()` call and return a `StreamHandle`.
 ///
-/// The response is broken into word-sized chunks and fed into the channel so
-/// the TUI sees incremental updates even with non-streaming providers.
+/// Providers with native SSE / chunked HTTP stream in real-time; providers
+/// without a native implementation fall back to the `complete()` + word-split
+/// default defined on the `Provider` trait.
 ///
 /// `channel_size` is the mpsc buffer depth; 256 is fine for UI polling.
 pub fn stream_complete(
@@ -99,44 +81,12 @@ pub fn stream_complete(
     let (tx, rx) = mpsc::channel(channel_size);
 
     tokio::spawn(async move {
-        match provider.complete(&messages).await {
-            Ok(response) => {
-                // Emit the response word-by-word so the TUI updates progressively.
-                for word in tokenise_response(&response) {
-                    if tx.send(StreamChunk::Delta(word)).await.is_err() {
-                        return; // Receiver dropped (e.g. user closed the chat window).
-                    }
-                }
-                let _ = tx.send(StreamChunk::Done).await;
-            }
-            Err(e) => {
-                let _ = tx.send(StreamChunk::Error(e.to_string())).await;
-            }
-        }
+        // provider.stream() handles Delta/Done/Error internally.
+        // Ignore the return value: any error is already sent as StreamChunk::Error.
+        let _ = provider.stream(&messages, tx).await;
     });
 
     StreamHandle::new(rx)
-}
-
-/// Split a response string into display-friendly chunks.
-///
-/// Each chunk is one "word" plus the trailing whitespace that followed it,
-/// so the rendered text stays readable as it arrives.
-fn tokenise_response(text: &str) -> Vec<String> {
-    let mut chunks = Vec::new();
-    let mut current = String::new();
-
-    for ch in text.chars() {
-        current.push(ch);
-        if (ch == ' ' || ch == '\n') && !current.is_empty() {
-            chunks.push(current.clone());
-            current.clear();
-        }
-    }
-    if !current.is_empty() {
-        chunks.push(current);
-    }
-    chunks
 }
 
 // ─── StreamingSession ─────────────────────────────────────────────────────────
@@ -256,24 +206,6 @@ mod tests {
             }
         }
         assert!(got_error);
-    }
-
-    #[test]
-    fn tokenise_splits_on_spaces() {
-        let chunks = tokenise_response("hello world");
-        assert_eq!(chunks, vec!["hello ", "world"]);
-    }
-
-    #[test]
-    fn tokenise_preserves_newlines() {
-        let chunks = tokenise_response("line1\nline2");
-        assert!(chunks.iter().any(|c| c.contains('\n')));
-    }
-
-    #[test]
-    fn tokenise_empty_string() {
-        let chunks = tokenise_response("");
-        assert!(chunks.is_empty());
     }
 
     #[test]
