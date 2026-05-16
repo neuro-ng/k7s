@@ -41,6 +41,7 @@ pub mod secret;
 pub mod service;
 pub mod stateful_set;
 pub mod storage_class;
+pub mod vela;
 
 pub use alias::AliasRenderer;
 pub use chat_log::ChatLogRenderer;

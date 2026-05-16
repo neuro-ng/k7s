@@ -98,6 +98,8 @@ pub struct K7sConfig {
     pub ui: UiConfig,
     pub logger: LoggerConfig,
     pub ai: AiConfig,
+    pub helm: HelmConfig,
+    pub vela: VelaConfig,
     pub benchmark: BenchmarkConfig,
 }
 
@@ -111,6 +113,8 @@ impl Default for K7sConfig {
             ui: UiConfig::default(),
             logger: LoggerConfig::default(),
             ai: AiConfig::default(),
+            helm: HelmConfig::default(),
+            vela: VelaConfig::default(),
             benchmark: BenchmarkConfig::default(),
         }
     }
@@ -264,6 +268,47 @@ impl Default for SanitizerConfig {
             strict_mode: true,
             audit_log: true,
             custom_patterns: Vec::new(),
+        }
+    }
+}
+
+/// Helm manager configuration — Phase 35.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct HelmConfig {
+    /// Whether the `:helm` / `:hr` command is available. Default: `true`.
+    pub enabled: bool,
+    /// Default namespace for `helm list`. Empty string = all namespaces.
+    pub default_namespace: String,
+    /// Maximum number of history rows shown before truncation.
+    pub max_history: usize,
+}
+
+impl Default for HelmConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            default_namespace: String::new(),
+            max_history: 10,
+        }
+    }
+}
+
+/// KubeVela Application Platform configuration — Phase 36.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct VelaConfig {
+    /// Whether `:vela` / `:va` / `:veladefs` commands are available. Default: `true`.
+    pub enabled: bool,
+    /// Default namespace for `list_apps`. Empty string = all namespaces.
+    pub default_namespace: String,
+}
+
+impl Default for VelaConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            default_namespace: String::new(),
         }
     }
 }

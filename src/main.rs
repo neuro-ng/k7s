@@ -29,6 +29,7 @@ mod portforward;
 mod render;
 mod sanitizer;
 mod util;
+mod vela;
 mod view;
 mod vul;
 mod watch;

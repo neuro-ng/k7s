@@ -45,6 +45,7 @@ use crate::view::{
     LogAction, LogView, MetricsAction, MetricsView, PulseAction, PulseView, RemediationKind,
     RemediationSuggestion, WorkloadAction, WorkloadView, XRayAction, XRayView,
 };
+use crate::view::helm::{HelmAction, HelmView};
 use crate::vul::{ImgScanAction, ImgScanView, VulReport, VulnerabilityScanner};
 use crate::watch::WatcherFactory;
 
@@ -110,6 +111,12 @@ enum Mode {
     Dir,
     /// Live metrics dashboard (sparklines for pods and nodes).
     Metrics,
+    /// Helm release manager (`:helm` / `:hr`).
+    Helm,
+    /// KubeVela Application Platform view (`:vela` / `:va`).
+    Vela,
+    /// KubeVela capability definitions view (`:veladefs` / `:vd`).
+    VelaDefs,
 }
 
 /// Outcome of the background cluster connection attempt.
@@ -141,6 +148,15 @@ struct WorkloadData {
 enum OpResult {
     Ok(String),
     Err(String),
+}
+
+/// KubeVela background data variants — Phase 36.
+#[derive(Debug)]
+enum VelaData {
+    Apps(Vec<crate::vela::VelaApplication>),
+    Revisions(Vec<crate::vela::VelaRevision>),
+    Defs(Vec<crate::vela::VelaDefinition>, String),
+    Error(String),
 }
 
 /// Result of an async AI call, sent back to the UI loop via mpsc.
@@ -300,6 +316,17 @@ pub struct App {
     vul_report_tx: mpsc::Sender<VulReport>,
     vul_report_rx: mpsc::Receiver<VulReport>,
 
+    // ── Helm manager (Phase 35) ───────────────────────────────────────────────
+    /// Helm release browser and sub-views.
+    helm_view: HelmView,
+
+    // ── KubeVela (Phase 36) ───────────────────────────────────────────────────
+    /// KubeVela application platform view.
+    vela_view: crate::view::vela::VelaView,
+    /// Channel for background KubeVela data loads.
+    vela_data_tx: mpsc::Sender<VelaData>,
+    vela_data_rx: mpsc::Receiver<VelaData>,
+
     // ── Config live-reload ────────────────────────────────────────────────────
     /// Receives `()` whenever the config file changes on disk.
     config_reload_rx: Option<mpsc::Receiver<()>>,
@@ -330,6 +357,7 @@ impl App {
         let (expert_reply_tx, expert_reply_rx) = mpsc::channel(16);
         let (expert_alert_tx, expert_alert_rx) = mpsc::channel(32);
         let (context_ready_tx, context_ready_rx) = mpsc::channel(4);
+        let (vela_data_tx, vela_data_rx) = mpsc::channel(4);
 
         // Build the LLM provider from config if an API key is available.
         let chat_provider = build_provider(&config);
@@ -493,6 +521,10 @@ impl App {
             pf_manager: crate::portforward::PortForwardManager::new(),
             img_scan: ImgScanView::new(VulReport::default()),
             dir: DirView::new_cwd(),
+            helm_view: HelmView::new(),
+            vela_view: crate::view::vela::VelaView::new(),
+            vela_data_tx,
+            vela_data_rx,
             op_result_tx,
             op_result_rx,
             config_reload_rx,
@@ -706,6 +738,79 @@ impl App {
             return;
         }
 
+        if matches!(alias, "helm" | "hr") {
+            self.history.push("helm");
+            self.cmd_history.push(
+                HistorySource::Tui,
+                format!("navigate:{alias}"),
+                None,
+                self.namespace.clone(),
+                true,
+            );
+            self.helm_view = HelmView::new();
+            // Load releases synchronously; errors surface inside HelmView.
+            let ctx = match &self.connection {
+                ConnectionState::Connected { context, .. } => Some(context.clone()),
+                _ => None,
+            };
+            self.helm_view.load_releases(ctx.as_deref());
+            self.mode = Mode::Helm;
+            return;
+        }
+
+        if matches!(alias, "vela" | "va") {
+            self.history.push("vela");
+            self.cmd_history.push(
+                HistorySource::Tui,
+                format!("navigate:{alias}"),
+                None,
+                self.namespace.clone(),
+                true,
+            );
+            self.vela_view = crate::view::vela::VelaView::new();
+            self.mode = Mode::Vela;
+            // Spawn async task to load applications.
+            let tx = self.vela_data_tx.clone();
+            let client = self.kube_client.clone();
+            let ns = self.config.k7s.vela.default_namespace.clone();
+            tokio::spawn(async move {
+                let apps = if let Some(c) = client {
+                    let ns_opt = if ns.is_empty() { None } else { Some(ns.as_str()) };
+                    crate::vela::client::list_apps(&c, ns_opt).await
+                } else {
+                    Vec::new()
+                };
+                let _ = tx.send(VelaData::Apps(apps)).await;
+            });
+            return;
+        }
+
+        if matches!(alias, "veladefs" | "vd") {
+            self.history.push("veladefs");
+            self.cmd_history.push(
+                HistorySource::Tui,
+                format!("navigate:{alias}"),
+                None,
+                self.namespace.clone(),
+                true,
+            );
+            self.vela_view = crate::view::vela::VelaView::new();
+            self.vela_view.enter_defs_mode();
+            self.mode = Mode::VelaDefs;
+            // Spawn async task to load component definitions.
+            let tx = self.vela_data_tx.clone();
+            let client = self.kube_client.clone();
+            tokio::spawn(async move {
+                let defs = if let Some(c) = client {
+                    crate::vela::client::list_definitions(&c, "component").await
+                } else {
+                    Vec::new()
+                };
+                let _ = tx.send(VelaData::Defs(defs, "component".into())).await;
+            });
+            return;
+        }
+
         if let Some(view) = crate::view::browser_for_resource(alias, &self.registry) {
             self.history.push(alias);
             self.cmd_history.push(
@@ -866,6 +971,16 @@ impl App {
         while let Ok(data) = self.workload_ready_rx.try_recv() {
             self.workload
                 .refresh(&data.deployments, &data.statefulsets, &data.daemonsets);
+        }
+
+        // Drain KubeVela background data (Phase 36).
+        while let Ok(data) = self.vela_data_rx.try_recv() {
+            match data {
+                VelaData::Apps(apps) => self.vela_view.set_apps(apps),
+                VelaData::Revisions(revs) => self.vela_view.set_revisions(revs),
+                VelaData::Defs(defs, def_type) => self.vela_view.set_defs(defs, &def_type),
+                VelaData::Error(msg) => self.vela_view.set_status(msg),
+            }
         }
 
         // Drain contextual AI chat context builds (Phase 24).
@@ -1573,6 +1688,127 @@ fn handle_key_event(app: &mut App, key: crossterm::event::KeyEvent) {
         let action = app.dir.handle_key(&key);
         if action == DirAction::Close {
             app.mode = Mode::Browse;
+        }
+        return;
+    }
+
+    // ── Helm manager ──────────────────────────────────────────────────────────
+    if app.mode == Mode::Helm {
+        let action = app.helm_view.handle_key(&key);
+        match action {
+            HelmAction::Close => {
+                app.mode = Mode::Browse;
+            }
+            HelmAction::Refresh => {
+                let ctx = match &app.connection {
+                    ConnectionState::Connected { context, .. } => Some(context.clone()),
+                    _ => None,
+                };
+                app.helm_view.load_releases(ctx.as_deref());
+                app.flash("Helm releases refreshed".to_owned(), Duration::from_secs(2));
+            }
+            HelmAction::Uninstall { name, namespace } => {
+                app.confirm_dialog = Some(ConfirmDialog::new(
+                    "Uninstall Helm Release",
+                    format!("Uninstall '{name}' from namespace '{namespace}'?"),
+                ));
+                app.pending_delete =
+                    Some(("helm_release".to_owned(), Some(namespace), name));
+                app.mode = Mode::Confirm;
+            }
+            HelmAction::Rollback {
+                name,
+                namespace,
+                revision,
+            } => {
+                app.confirm_dialog = Some(ConfirmDialog::new(
+                    "Helm Rollback",
+                    format!("Rollback '{name}' to revision {revision} in '{namespace}'?"),
+                ));
+                app.pending_delete = Some((
+                    format!("helm_rollback:{revision}"),
+                    Some(namespace),
+                    name,
+                ));
+                app.mode = Mode::Confirm;
+            }
+            HelmAction::AiAnalyse { name, namespace } => {
+                let scope_label = format!("helm/{name}  ·  {namespace}");
+                app.chat.set_scope(scope_label);
+                app.mode = Mode::Chat;
+                app.chat.push_message(
+                    Role::System,
+                    format!(
+                        "Helm release context: release '{name}' in namespace '{namespace}'.\n\
+                         Ask questions about this release's status, history, or configuration."
+                    ),
+                );
+            }
+            HelmAction::None => {}
+        }
+        return;
+    }
+
+    // ── KubeVela view ─────────────────────────────────────────────────────────
+    if app.mode == Mode::Vela || app.mode == Mode::VelaDefs {
+        let action = app.vela_view.handle_key(&key);
+        match action {
+            crate::view::VelaAction::Close => {
+                app.mode = Mode::Browse;
+            }
+            crate::view::VelaAction::Refresh => {
+                let tx = app.vela_data_tx.clone();
+                let client = app.kube_client.clone();
+                let ns = app.config.k7s.vela.default_namespace.clone();
+                tokio::spawn(async move {
+                    let apps = if let Some(c) = client {
+                        let ns_opt = if ns.is_empty() { None } else { Some(ns.as_str()) };
+                        crate::vela::client::list_apps(&c, ns_opt).await
+                    } else {
+                        Vec::new()
+                    };
+                    let _ = tx.send(VelaData::Apps(apps)).await;
+                });
+                app.flash("Refreshing KubeVela applications…".to_owned(), Duration::from_secs(2));
+            }
+            crate::view::VelaAction::LoadRevisions { name, namespace } => {
+                let tx = app.vela_data_tx.clone();
+                let client = app.kube_client.clone();
+                tokio::spawn(async move {
+                    let revs = if let Some(c) = client {
+                        crate::vela::client::list_revisions(&c, &name, &namespace).await
+                    } else {
+                        Vec::new()
+                    };
+                    let _ = tx.send(VelaData::Revisions(revs)).await;
+                });
+            }
+            crate::view::VelaAction::LoadDefs { def_type } => {
+                let tx = app.vela_data_tx.clone();
+                let client = app.kube_client.clone();
+                let dt = def_type.clone();
+                tokio::spawn(async move {
+                    let defs = if let Some(c) = client {
+                        crate::vela::client::list_definitions(&c, &dt).await
+                    } else {
+                        Vec::new()
+                    };
+                    let _ = tx.send(VelaData::Defs(defs, dt)).await;
+                });
+            }
+            crate::view::VelaAction::AiAnalyse { name, namespace } => {
+                let scope_label = format!("vela/{name}  ·  {namespace}");
+                app.chat.set_scope(scope_label);
+                app.mode = Mode::Chat;
+                app.chat.push_message(
+                    Role::System,
+                    format!(
+                        "KubeVela Application context: '{name}' in namespace '{namespace}'.\n\
+                         Ask questions about application health, components, workflow, or revisions."
+                    ),
+                );
+            }
+            crate::view::VelaAction::None => {}
         }
         return;
     }
@@ -2682,6 +2918,9 @@ fn render_header(frame: &mut Frame, app: &App, area: Rect) {
         Mode::ImgScan => "  [vuln-scan]",
         Mode::Dir => "  [dir]",
         Mode::Metrics => "  [metrics]",
+        Mode::Helm => "  [helm]",
+        Mode::Vela => "  [vela]",
+        Mode::VelaDefs => "  [veladefs]",
         Mode::Browse => "",
     };
 
@@ -2811,6 +3050,12 @@ fn render_main(frame: &mut Frame, app: &mut App, area: Rect) {
         Mode::Dir => {
             app.dir.render(frame, area);
         }
+        Mode::Helm => {
+            app.helm_view.render(frame, area);
+        }
+        Mode::Vela | Mode::VelaDefs => {
+            app.vela_view.render(frame, area);
+        }
         Mode::Metrics => {
             let ctx = match &app.connection {
                 ConnectionState::Connected { context, .. } => context.as_str(),
@@ -2858,6 +3103,37 @@ fn render_footer(frame: &mut Frame, app: &App, area: Rect) {
     if app.mode == Mode::Metrics {
         frame.render_widget(
             Paragraph::new("  ↑↓/jk scroll  r refresh  q/Esc close")
+                .style(Style::default().fg(Color::DarkGray)),
+            area,
+        );
+        return;
+    }
+
+    if app.mode == Mode::Helm {
+        frame.render_widget(
+            Paragraph::new(
+                "  ↑↓/jk navigate  Enter history  v values  m manifest  n notes  D uninstall  A AI  r refresh  q close",
+            )
+            .style(Style::default().fg(Color::DarkGray)),
+            area,
+        );
+        return;
+    }
+
+    if app.mode == Mode::Vela {
+        frame.render_widget(
+            Paragraph::new(
+                "  ↑↓/jk navigate  Enter components  w workflow  h history  A AI  r refresh  q close",
+            )
+            .style(Style::default().fg(Color::DarkGray)),
+            area,
+        );
+        return;
+    }
+
+    if app.mode == Mode::VelaDefs {
+        frame.render_widget(
+            Paragraph::new("  ↑↓/jk navigate  Tab next type  r refresh  q close")
                 .style(Style::default().fg(Color::DarkGray)),
             area,
         );

@@ -1,13 +1,15 @@
-//! Helm release renderer — Phase 10.5.
+//! Helm release renderer — Phase 10.5 / Phase 35.
 //!
-//! Converts a `serde_json::Value` serialised from a `HelmRelease` into a
-//! `RenderedRow` suitable for the k7s table widget.
+//! Converts `serde_json::Value` representations of `HelmRelease` and
+//! `HelmHistoryEntry` into `RenderedRow` values suitable for the k7s table
+//! widget.
 //!
-//! Helm releases are not native Kubernetes resources so this renderer is
-//! standalone — it does NOT implement the `Renderer` trait (which requires a
+//! Helm releases are not native Kubernetes resources so these renderers are
+//! standalone — they do NOT implement the `Renderer` trait (which requires a
 //! `Gvr`).
 //!
-//! Columns: NAME · NAMESPACE · REVISION · STATUS · CHART · APP VERSION · UPDATED
+//! Release columns:  NAME · NAMESPACE · REVISION · STATUS · CHART · APP VERSION · UPDATED
+//! History columns:  REV · STATUS · CHART · APP VERSION · UPDATED · DESCRIPTION
 
 use serde_json::Value;
 
@@ -71,6 +73,42 @@ fn format_updated(raw: String) -> String {
     }
 }
 
+// ─── History renderer ─────────────────────────────────────────────────────────
+
+/// Column header names for the Helm history table.
+pub fn history_headers() -> Vec<&'static str> {
+    vec![
+        "REV",
+        "STATUS",
+        "CHART",
+        "APP VERSION",
+        "UPDATED",
+        "DESCRIPTION",
+    ]
+}
+
+/// Render a single `HelmHistoryEntry` value into a table row.
+///
+/// Expected JSON keys: `revision` (u64), `status`, `chart`, `app_version`,
+/// `updated`, `description`.
+pub fn render_history(obj: &Value) -> RenderedRow {
+    let revision = obj
+        .get("revision")
+        .and_then(|v| v.as_u64())
+        .map(|n| n.to_string())
+        .unwrap_or_else(|| "<none>".into());
+    let status = str_field(obj, "status");
+    let chart = str_field(obj, "chart");
+    let app_version = str_field(obj, "app_version");
+    let updated = format_updated(str_field(obj, "updated"));
+    let description = str_field(obj, "description");
+
+    RenderedRow {
+        cells: vec![revision, status, chart, app_version, updated, description],
+        age_secs: 0,
+    }
+}
+
 // ─── Tests ────────────────────────────────────────────────────────────────────
 
 #[cfg(test)]
@@ -112,5 +150,46 @@ mod tests {
     fn missing_field_shows_none() {
         let row = render(&json!({}));
         assert!(row.cells.iter().all(|c| c == "<none>"));
+    }
+
+    #[test]
+    fn history_headers_count() {
+        assert_eq!(history_headers().len(), 6);
+    }
+
+    #[test]
+    fn render_history_basic() {
+        let obj = json!({
+            "revision": 2,
+            "status": "superseded",
+            "chart": "my-app-1.2.2",
+            "app_version": "1.2.2",
+            "updated": "2026-04-09 10:00:00.000 +0000 UTC",
+            "description": "Upgrade complete"
+        });
+        let row = render_history(&obj);
+        assert_eq!(row.cells[0], "2");
+        assert_eq!(row.cells[1], "superseded");
+        assert_eq!(row.cells[5], "Upgrade complete");
+    }
+
+    #[test]
+    fn render_history_missing_revision_shows_none() {
+        let row = render_history(&json!({}));
+        assert_eq!(row.cells[0], "<none>");
+    }
+
+    #[test]
+    fn render_history_updated_truncated() {
+        let obj = json!({
+            "revision": 1,
+            "status": "deployed",
+            "chart": "app-1.0",
+            "app_version": "1.0",
+            "updated": "2026-01-01 08:00:00.000 +0000 UTC",
+            "description": "Initial install"
+        });
+        let row = render_history(&obj);
+        assert_eq!(row.cells[4], "2026-01-01 08:00:00.000");
     }
 }
