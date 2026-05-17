@@ -23,12 +23,12 @@ mod client;
 mod dao;
 mod exec;
 mod health;
+mod meta;
 mod metrics;
 mod model;
 mod portforward;
 mod render;
 mod sanitizer;
-mod meta;
 mod util;
 mod vela;
 mod view;
@@ -819,7 +819,11 @@ fn resolve_meta_context(override_ctx: &Option<String>) -> String {
 fn run_meta(action: MetaAction, global_context: &Option<String>) -> anyhow::Result<()> {
     match action {
         // ── list ──────────────────────────────────────────────────────────────
-        MetaAction::List { context, days, r#type: type_filter } => {
+        MetaAction::List {
+            context,
+            days,
+            r#type: type_filter,
+        } => {
             let ctx = resolve_meta_context(&context.or_else(|| global_context.clone()));
             let Some(store) = meta::MetadataStore::new(&ctx) else {
                 eprintln!("k7s meta: cannot open metadata store for context '{ctx}'");
@@ -840,16 +844,28 @@ fn run_meta(action: MetaAction, global_context: &Option<String>) -> anyhow::Resu
                     continue;
                 }
                 let filtered: Vec<_> = if let Some(ref tf) = type_filter {
-                    records.iter().filter(|r| r.type_label() == tf.as_str()).collect()
+                    records
+                        .iter()
+                        .filter(|r| r.type_label() == tf.as_str())
+                        .collect()
                 } else {
                     records.iter().collect()
                 };
                 if filtered.is_empty() {
                     continue;
                 }
-                let snapshots = filtered.iter().filter(|r| r.type_label() == "snapshot").count();
-                let issues   = filtered.iter().filter(|r| r.type_label() == "issue").count();
-                let actions  = filtered.iter().filter(|r| r.type_label() == "interaction").count();
+                let snapshots = filtered
+                    .iter()
+                    .filter(|r| r.type_label() == "snapshot")
+                    .count();
+                let issues = filtered
+                    .iter()
+                    .filter(|r| r.type_label() == "issue")
+                    .count();
+                let actions = filtered
+                    .iter()
+                    .filter(|r| r.type_label() == "interaction")
+                    .count();
                 println!(
                     "{:<12} {:>8}  snap={snapshots} issue={issues} action={actions}",
                     date.format("%Y-%m-%d"),
@@ -882,7 +898,12 @@ fn run_meta(action: MetaAction, global_context: &Option<String>) -> anyhow::Resu
             println!("{}", "─".repeat(60));
             for record in &records {
                 let ts = record.timestamp().format("%H:%M:%S");
-                println!("[{}] [{}] {}", ts, record.type_label().to_uppercase(), record.summary());
+                println!(
+                    "[{}] [{}] {}",
+                    ts,
+                    record.type_label().to_uppercase(),
+                    record.summary()
+                );
             }
             println!();
             println!("{} records.", records.len());
@@ -913,7 +934,11 @@ fn run_meta(action: MetaAction, global_context: &Option<String>) -> anyhow::Resu
         }
 
         // ── export ────────────────────────────────────────────────────────────
-        MetaAction::Export { context, days, output } => {
+        MetaAction::Export {
+            context,
+            days,
+            output,
+        } => {
             let ctx = resolve_meta_context(&context.or_else(|| global_context.clone()));
             let Some(store) = meta::MetadataStore::new(&ctx) else {
                 eprintln!("k7s meta: cannot open metadata store for context '{ctx}'");
@@ -922,7 +947,9 @@ fn run_meta(action: MetaAction, global_context: &Option<String>) -> anyhow::Resu
 
             let records = store.load_recent(days);
             if records.is_empty() {
-                eprintln!("k7s meta export: no records for context '{ctx}' in the last {days} days.");
+                eprintln!(
+                    "k7s meta export: no records for context '{ctx}' in the last {days} days."
+                );
                 return Ok(());
             }
 
@@ -938,7 +965,10 @@ fn run_meta(action: MetaAction, global_context: &Option<String>) -> anyhow::Resu
                     let today = chrono::Utc::now().date_naive();
                     println!("# Cluster Incident Report — {ctx}");
                     println!();
-                    println!("**Generated:** {}  **Period:** last {days} days", today.format("%Y-%m-%d"));
+                    println!(
+                        "**Generated:** {}  **Period:** last {days} days",
+                        today.format("%Y-%m-%d")
+                    );
                     println!();
                     println!("## Summary");
                     println!();
@@ -950,7 +980,8 @@ fn run_meta(action: MetaAction, global_context: &Option<String>) -> anyhow::Resu
                     let today_naive = chrono::Utc::now().date_naive();
                     for i in (0..days as i64).rev() {
                         let date = today_naive - chrono::Duration::days(i);
-                        let day_records: Vec<_> = records.iter()
+                        let day_records: Vec<_> = records
+                            .iter()
                             .filter(|r| r.timestamp().date_naive() == date)
                             .collect();
                         if day_records.is_empty() {
@@ -960,7 +991,12 @@ fn run_meta(action: MetaAction, global_context: &Option<String>) -> anyhow::Resu
                         println!();
                         for record in day_records {
                             let ts = record.timestamp().format("%H:%M:%S UTC");
-                            println!("- **[{}]** `{}` — {}", record.type_label(), ts, record.summary());
+                            println!(
+                                "- **[{}]** `{}` — {}",
+                                record.type_label(),
+                                ts,
+                                record.summary()
+                            );
                         }
                         println!();
                     }

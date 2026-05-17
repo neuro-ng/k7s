@@ -229,7 +229,10 @@ impl VelaView {
                     self.selected_app_name = name.clone();
                     self.selected_app_ns = ns.clone();
                     self.status = Some(format!("Loading revisions for {name}…"));
-                    return VelaAction::LoadRevisions { name, namespace: ns };
+                    return VelaAction::LoadRevisions {
+                        name,
+                        namespace: ns,
+                    };
                 }
             }
 
@@ -475,8 +478,7 @@ impl VelaView {
                 Row::new(vec![
                     Cell::from(comp.name.clone()),
                     Cell::from(comp.workload_type.clone()),
-                    Cell::from(if comp.healthy { "true" } else { "false" })
-                        .style(healthy_style),
+                    Cell::from(if comp.healthy { "true" } else { "false" }).style(healthy_style),
                     Cell::from(traits),
                     Cell::from(comp.message.clone()),
                 ])
@@ -708,9 +710,7 @@ impl VelaView {
     // ── Helpers ───────────────────────────────────────────────────────────────
 
     fn selected_app(&self) -> Option<&VelaApplication> {
-        self.app_table
-            .selected()
-            .and_then(|i| self.apps.get(i))
+        self.app_table.selected().and_then(|i| self.apps.get(i))
     }
 
     /// Whether the current sub-view is the top-level Defs view.

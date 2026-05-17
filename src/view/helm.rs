@@ -13,13 +13,13 @@
 
 use crossterm::event::{KeyCode, KeyEvent};
 use ratatui::layout::Constraint;
+use ratatui::layout::Rect;
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::widgets::{
     Block, Borders, Cell, Paragraph, Row, Scrollbar, ScrollbarOrientation, ScrollbarState, Table,
     TableState, Wrap,
 };
 use ratatui::Frame;
-use ratatui::layout::Rect;
 
 use crate::dao::helm::{HelmDao, HelmHistoryEntry, HelmRelease};
 
@@ -371,13 +371,17 @@ impl HelmView {
             .fg(Color::Yellow)
             .add_modifier(Modifier::BOLD | Modifier::UNDERLINED);
 
-        let headers = ["NAME", "NAMESPACE", "CHART", "APP VER", "STATUS", "REV", "UPDATED"];
-        let header_row = Row::new(
-            headers
-                .iter()
-                .map(|h| Cell::from(*h).style(header_style)),
-        )
-        .height(1);
+        let headers = [
+            "NAME",
+            "NAMESPACE",
+            "CHART",
+            "APP VER",
+            "STATUS",
+            "REV",
+            "UPDATED",
+        ];
+        let header_row =
+            Row::new(headers.iter().map(|h| Cell::from(*h).style(header_style))).height(1);
 
         let rows: Vec<Row> = self
             .releases
@@ -451,13 +455,16 @@ impl HelmView {
             .fg(Color::Yellow)
             .add_modifier(Modifier::BOLD | Modifier::UNDERLINED);
 
-        let headers = ["REV", "STATUS", "CHART", "APP VER", "UPDATED", "DESCRIPTION"];
-        let header_row = Row::new(
-            headers
-                .iter()
-                .map(|h| Cell::from(*h).style(header_style)),
-        )
-        .height(1);
+        let headers = [
+            "REV",
+            "STATUS",
+            "CHART",
+            "APP VER",
+            "UPDATED",
+            "DESCRIPTION",
+        ];
+        let header_row =
+            Row::new(headers.iter().map(|h| Cell::from(*h).style(header_style))).height(1);
 
         let rows: Vec<Row> = self
             .history
@@ -505,8 +512,11 @@ impl HelmView {
     }
 
     fn render_text(&mut self, frame: &mut Frame, area: Rect) {
-        let lines: Vec<ratatui::text::Line> =
-            self.text_content.lines().map(ratatui::text::Line::raw).collect();
+        let lines: Vec<ratatui::text::Line> = self
+            .text_content
+            .lines()
+            .map(ratatui::text::Line::raw)
+            .collect();
         let total = lines.len();
         let visible = area.height.saturating_sub(2) as usize;
         let max_scroll = total.saturating_sub(visible);
@@ -576,10 +586,7 @@ fn run_helm_get(subcommand: &str, name: &str, namespace: &str, extra: &[&str]) -
     cmd.args(extra);
     match cmd.output() {
         Ok(o) if o.status.success() => String::from_utf8_lossy(&o.stdout).into_owned(),
-        Ok(o) => format!(
-            "Error: {}",
-            String::from_utf8_lossy(&o.stderr).trim()
-        ),
+        Ok(o) => format!("Error: {}", String::from_utf8_lossy(&o.stderr).trim()),
         Err(e) => format!("Error running helm: {e}"),
     }
 }
@@ -698,7 +705,10 @@ mod tests {
     #[test]
     fn refresh_action_on_r() {
         let mut v = HelmView::new();
-        assert_eq!(v.handle_key(&press(KeyCode::Char('r'))), HelmAction::Refresh);
+        assert_eq!(
+            v.handle_key(&press(KeyCode::Char('r'))),
+            HelmAction::Refresh
+        );
     }
 
     #[test]

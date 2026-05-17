@@ -64,9 +64,7 @@ pub fn sanitize_helm_values(value: Value) -> Value {
             }
             Value::Object(out)
         }
-        Value::Array(arr) => {
-            Value::Array(arr.into_iter().map(sanitize_helm_values).collect())
-        }
+        Value::Array(arr) => Value::Array(arr.into_iter().map(sanitize_helm_values).collect()),
         Value::String(s) if is_secret_value(&s) => Value::String("[REDACTED]".into()),
         other => other,
     }

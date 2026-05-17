@@ -12,7 +12,14 @@ use crate::vela::{VelaApplication, VelaComponent, VelaDefinition, VelaRevision, 
 // ─── Application table ────────────────────────────────────────────────────────
 
 pub fn app_headers() -> Vec<&'static str> {
-    vec!["NAME", "NAMESPACE", "STATUS", "WORKFLOW", "COMPONENTS", "AGE"]
+    vec![
+        "NAME",
+        "NAMESPACE",
+        "STATUS",
+        "WORKFLOW",
+        "COMPONENTS",
+        "AGE",
+    ]
 }
 
 pub fn render_app(app: &VelaApplication) -> RenderedRow {
@@ -114,9 +121,7 @@ pub fn render_definition(def: &VelaDefinition) -> RenderedRow {
 pub fn status_color(status: &str) -> Style {
     match status.to_lowercase().as_str() {
         "running" => Style::default().fg(Color::Green),
-        "workflowfailed" | "workflowsuspending" | "deleting" => {
-            Style::default().fg(Color::Red)
-        }
+        "workflowfailed" | "workflowsuspending" | "deleting" => Style::default().fg(Color::Red),
         "workflowrunning" | "rendering" | "starting" => Style::default().fg(Color::Yellow),
         _ => Style::default().fg(Color::DarkGray),
     }

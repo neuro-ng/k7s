@@ -30,19 +30,19 @@
 pub mod filter;
 pub mod helm;
 pub mod log_analysis;
-pub mod vela;
 pub mod log_compressor;
 pub mod redactor;
+pub mod vela;
 
 pub use filter::FieldFilter;
 pub use helm::sanitize_helm_values;
-pub use vela::sanitize_vela_properties;
 pub use log_analysis::{
     detect_temporal_patterns, summarise_stack_trace, SmartTruncator, StackTraceSummary,
     TemporalPattern, TraceRuntime, TruncatedText,
 };
 pub use log_compressor::{compress, CompressedLog, CompressionStats, LogLevel};
 pub use redactor::Redactor;
+pub use vela::sanitize_vela_properties;
 
 use crate::client::Gvr;
 use crate::config::SanitizerConfig;

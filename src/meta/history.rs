@@ -184,9 +184,17 @@ mod tests {
 
     fn snap(deploys: u32, nodes: u32) -> MetadataRecord {
         MetadataRecord::Snapshot(SnapshotRecord::new(
-            NodeSummary { total: nodes, ready: nodes, not_ready: 0 },
+            NodeSummary {
+                total: nodes,
+                ready: nodes,
+                not_ready: 0,
+            },
             vec!["default".into()],
-            WorkloadSummary { deployments: deploys, running: deploys, degraded: 0 },
+            WorkloadSummary {
+                deployments: deploys,
+                running: deploys,
+                degraded: 0,
+            },
             "1.30.0",
         ))
     }
@@ -203,7 +211,11 @@ mod tests {
 
     fn interact(action: InteractionAction) -> MetadataRecord {
         MetadataRecord::Interaction(InteractionRecord::new(
-            action, "prod", "deploy-x", "Deployment", "success",
+            action,
+            "prod",
+            "deploy-x",
+            "Deployment",
+            "success",
         ))
     }
 
@@ -266,9 +278,18 @@ mod tests {
         records.push(issue("CrashLoopBackOff", "prod", "api"));
         let h = summarise(&records, 7, "mycluster");
         let block = h.to_context_block();
-        assert!(block.contains("mycluster"), "header should contain context: {block}");
-        assert!(block.contains("Recurrent"), "should mention issues: {block}");
-        assert!(block.contains("−1") || block.contains("-1"), "drift should appear: {block}");
+        assert!(
+            block.contains("mycluster"),
+            "header should contain context: {block}"
+        );
+        assert!(
+            block.contains("Recurrent"),
+            "should mention issues: {block}"
+        );
+        assert!(
+            block.contains("−1") || block.contains("-1"),
+            "drift should appear: {block}"
+        );
     }
 
     #[test]

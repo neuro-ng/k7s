@@ -49,10 +49,9 @@ impl MetadataRecord {
                 r.workloads.deployments,
                 r.namespaces.join(", ")
             ),
-            MetadataRecord::Issue(r) => format!(
-                "{} {}/{}: {}",
-                r.kind, r.namespace, r.resource, r.message
-            ),
+            MetadataRecord::Issue(r) => {
+                format!("{} {}/{}: {}", r.kind, r.namespace, r.resource, r.message)
+            }
             MetadataRecord::Interaction(r) => format!(
                 "{} {}/{} → {}",
                 r.action.label(),
@@ -242,9 +241,17 @@ mod tests {
     #[test]
     fn snapshot_type_label() {
         let r = MetadataRecord::Snapshot(SnapshotRecord::new(
-            NodeSummary { total: 3, ready: 3, not_ready: 0 },
+            NodeSummary {
+                total: 3,
+                ready: 3,
+                not_ready: 0,
+            },
             vec!["default".into()],
-            WorkloadSummary { deployments: 2, running: 2, degraded: 0 },
+            WorkloadSummary {
+                deployments: 2,
+                running: 2,
+                degraded: 0,
+            },
             "1.30.2",
         ));
         assert_eq!(r.type_label(), "snapshot");
@@ -253,7 +260,11 @@ mod tests {
     #[test]
     fn issue_type_label() {
         let r = MetadataRecord::Issue(IssueRecord::new(
-            "CrashLoopBackOff", "prod", "api-server", "Pod", "exited 137",
+            "CrashLoopBackOff",
+            "prod",
+            "api-server",
+            "Pod",
+            "exited 137",
         ));
         assert_eq!(r.type_label(), "issue");
     }
@@ -262,7 +273,10 @@ mod tests {
     fn interaction_type_label() {
         let r = MetadataRecord::Interaction(InteractionRecord::new(
             InteractionAction::DeletePod,
-            "prod", "bad-pod", "Pod", "success",
+            "prod",
+            "bad-pod",
+            "Pod",
+            "success",
         ));
         assert_eq!(r.type_label(), "interaction");
     }
@@ -285,9 +299,17 @@ mod tests {
     #[test]
     fn snapshot_summary_contains_node_counts() {
         let r = MetadataRecord::Snapshot(SnapshotRecord::new(
-            NodeSummary { total: 5, ready: 4, not_ready: 1 },
+            NodeSummary {
+                total: 5,
+                ready: 4,
+                not_ready: 1,
+            },
             vec!["default".into(), "prod".into()],
-            WorkloadSummary { deployments: 10, running: 9, degraded: 1 },
+            WorkloadSummary {
+                deployments: 10,
+                running: 9,
+                degraded: 1,
+            },
             "1.30.1",
         ));
         let s = r.summary();
@@ -297,9 +319,17 @@ mod tests {
     #[test]
     fn serde_round_trip_snapshot() {
         let record = MetadataRecord::Snapshot(SnapshotRecord::new(
-            NodeSummary { total: 2, ready: 2, not_ready: 0 },
+            NodeSummary {
+                total: 2,
+                ready: 2,
+                not_ready: 0,
+            },
             vec!["default".into()],
-            WorkloadSummary { deployments: 3, running: 3, degraded: 0 },
+            WorkloadSummary {
+                deployments: 3,
+                running: 3,
+                degraded: 0,
+            },
             "1.29.0",
         ));
         let json = serde_json::to_string(&record).unwrap();
@@ -310,7 +340,11 @@ mod tests {
     #[test]
     fn serde_round_trip_issue() {
         let record = MetadataRecord::Issue(IssueRecord::new(
-            "OOMKilled", "ns", "pod-x", "Pod", "memory limit exceeded",
+            "OOMKilled",
+            "ns",
+            "pod-x",
+            "Pod",
+            "memory limit exceeded",
         ));
         let json = serde_json::to_string(&record).unwrap();
         let back: MetadataRecord = serde_json::from_str(&json).unwrap();
@@ -321,14 +355,20 @@ mod tests {
     fn interaction_action_label() {
         assert_eq!(InteractionAction::DeletePod.label(), "DeletePod");
         assert_eq!(InteractionAction::AiAnalyse.label(), "AiAnalyse");
-        assert_eq!(InteractionAction::ExpertRemediation.label(), "ExpertRemediation");
+        assert_eq!(
+            InteractionAction::ExpertRemediation.label(),
+            "ExpertRemediation"
+        );
     }
 
     #[test]
     fn serde_round_trip_interaction() {
         let record = MetadataRecord::Interaction(InteractionRecord::new(
             InteractionAction::ScaleDeployment,
-            "default", "my-deploy", "Deployment", "success",
+            "default",
+            "my-deploy",
+            "Deployment",
+            "success",
         ));
         let json = serde_json::to_string(&record).unwrap();
         let back: MetadataRecord = serde_json::from_str(&json).unwrap();

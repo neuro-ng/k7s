@@ -51,9 +51,7 @@ pub fn sanitize_vela_properties(value: Value) -> Value {
             }
             Value::Object(out)
         }
-        Value::Array(arr) => {
-            Value::Array(arr.into_iter().map(sanitize_vela_properties).collect())
-        }
+        Value::Array(arr) => Value::Array(arr.into_iter().map(sanitize_vela_properties).collect()),
         Value::String(s) if is_secret_value(&s) => Value::String("[REDACTED]".into()),
         other => other,
     }
@@ -102,10 +100,7 @@ fn sanitize_env_array(value: Value) -> Value {
                             map.insert("value".into(), Value::String("[REDACTED]".into()));
                         } else if let Some(Value::String(s)) = map.get("value") {
                             if is_secret_value(s) {
-                                map.insert(
-                                    "value".into(),
-                                    Value::String("[REDACTED]".into()),
-                                );
+                                map.insert("value".into(), Value::String("[REDACTED]".into()));
                             }
                         }
                         Value::Object(map)

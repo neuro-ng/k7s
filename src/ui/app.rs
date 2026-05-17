@@ -15,10 +15,10 @@ use tokio::sync::{mpsc, RwLock};
 
 use crate::ai::antigravity::{AntigravityConfig, AntigravityProvider};
 use crate::ai::api_client::{ApiKeyProvider, ApiKeyProviderConfig};
-use crate::ai::bedrock::{BedrockProvider, BedrockProviderConfig};
 use crate::ai::azure::{AzureConfig, AzureOpenAIProvider};
-use crate::ai::ollama::{OllamaConfig, OllamaProvider};
+use crate::ai::bedrock::{BedrockProvider, BedrockProviderConfig};
 use crate::ai::context::{build_resource_context, ContextScope};
+use crate::ai::ollama::{OllamaConfig, OllamaProvider};
 use crate::ai::provider::{Provider, Role};
 use crate::ai::session::ChatSession;
 use crate::config::{Config, ConfigDirs, Plugin, PluginConfig, PluginContext};
@@ -38,6 +38,7 @@ use kube::runtime::reflector::Store;
 
 use crate::client::ClientConfig;
 use crate::metrics::{spawn_metrics_poller, MetricsSnapshot, MetricsStore, DEFAULT_POLL_INTERVAL};
+use crate::view::helm::{HelmAction, HelmView};
 use crate::view::BrowserView;
 use crate::view::{
     build_expert_prompt, chat_log_browser, demo_tree, pf_browser, suggestions_for_alert, DirAction,
@@ -45,7 +46,6 @@ use crate::view::{
     LogAction, LogView, MetricsAction, MetricsView, PulseAction, PulseView, RemediationKind,
     RemediationSuggestion, WorkloadAction, WorkloadView, XRayAction, XRayView,
 };
-use crate::view::helm::{HelmAction, HelmView};
 use crate::vul::{ImgScanAction, ImgScanView, VulReport, VulnerabilityScanner};
 use crate::watch::WatcherFactory;
 
@@ -802,7 +802,11 @@ impl App {
             let ns = self.config.k7s.vela.default_namespace.clone();
             tokio::spawn(async move {
                 let apps = if let Some(c) = client {
-                    let ns_opt = if ns.is_empty() { None } else { Some(ns.as_str()) };
+                    let ns_opt = if ns.is_empty() {
+                        None
+                    } else {
+                        Some(ns.as_str())
+                    };
                     crate::vela::client::list_apps(&c, ns_opt).await
                 } else {
                     Vec::new()
@@ -980,9 +984,7 @@ impl App {
                     // Kick off expert scan if expert mode was pre-enabled (--expert flag).
                     self.start_expert_scan();
                     // Write a snapshot record to the metadata store if enabled.
-                    if self.config.k7s.meta.enabled
-                        && self.config.k7s.meta.snapshot_on_connect
-                    {
+                    if self.config.k7s.meta.enabled && self.config.k7s.meta.snapshot_on_connect {
                         let tx = self.meta_data_tx.clone();
                         let ctx = context.clone();
                         let ver = version.clone();
@@ -1140,9 +1142,9 @@ impl App {
                         .unwrap_or("Unknown")
                         .trim_end_matches('(')
                         .to_owned();
-                    let record = crate::meta::MetadataRecord::Issue(
-                        crate::meta::IssueRecord::new(&kind, &namespace, &resource, "Pod", &summary),
-                    );
+                    let record = crate::meta::MetadataRecord::Issue(crate::meta::IssueRecord::new(
+                        &kind, &namespace, &resource, "Pod", &summary,
+                    ));
                     tokio::spawn(async move {
                         if let Some(store) = crate::meta::MetadataStore::new(&ctx) {
                             let _ = store.append(&record);
@@ -1853,8 +1855,7 @@ fn handle_key_event(app: &mut App, key: crossterm::event::KeyEvent) {
                     "Uninstall Helm Release",
                     format!("Uninstall '{name}' from namespace '{namespace}'?"),
                 ));
-                app.pending_delete =
-                    Some(("helm_release".to_owned(), Some(namespace), name));
+                app.pending_delete = Some(("helm_release".to_owned(), Some(namespace), name));
                 app.mode = Mode::Confirm;
             }
             HelmAction::Rollback {
@@ -1866,11 +1867,8 @@ fn handle_key_event(app: &mut App, key: crossterm::event::KeyEvent) {
                     "Helm Rollback",
                     format!("Rollback '{name}' to revision {revision} in '{namespace}'?"),
                 ));
-                app.pending_delete = Some((
-                    format!("helm_rollback:{revision}"),
-                    Some(namespace),
-                    name,
-                ));
+                app.pending_delete =
+                    Some((format!("helm_rollback:{revision}"), Some(namespace), name));
                 app.mode = Mode::Confirm;
             }
             HelmAction::AiAnalyse { name, namespace } => {
@@ -1903,14 +1901,21 @@ fn handle_key_event(app: &mut App, key: crossterm::event::KeyEvent) {
                 let ns = app.config.k7s.vela.default_namespace.clone();
                 tokio::spawn(async move {
                     let apps = if let Some(c) = client {
-                        let ns_opt = if ns.is_empty() { None } else { Some(ns.as_str()) };
+                        let ns_opt = if ns.is_empty() {
+                            None
+                        } else {
+                            Some(ns.as_str())
+                        };
                         crate::vela::client::list_apps(&c, ns_opt).await
                     } else {
                         Vec::new()
                     };
                     let _ = tx.send(VelaData::Apps(apps)).await;
                 });
-                app.flash("Refreshing KubeVela applications…".to_owned(), Duration::from_secs(2));
+                app.flash(
+                    "Refreshing KubeVela applications…".to_owned(),
+                    Duration::from_secs(2),
+                );
             }
             crate::view::VelaAction::LoadRevisions { name, namespace } => {
                 let tx = app.vela_data_tx.clone();
@@ -2943,16 +2948,16 @@ fn meta_append_interaction(
     if !app.config.k7s.meta.enabled || !app.config.k7s.meta.record_interactions {
         return;
     }
-    let Some(ctx) = app.meta_context.clone() else { return };
-    let record = crate::meta::MetadataRecord::Interaction(
-        crate::meta::InteractionRecord::new(
-            action,
-            namespace,
-            resource,
-            resource_kind,
-            outcome,
-        ),
-    );
+    let Some(ctx) = app.meta_context.clone() else {
+        return;
+    };
+    let record = crate::meta::MetadataRecord::Interaction(crate::meta::InteractionRecord::new(
+        action,
+        namespace,
+        resource,
+        resource_kind,
+        outcome,
+    ));
     tokio::spawn(async move {
         if let Some(store) = crate::meta::MetadataStore::new(&ctx) {
             let _ = store.append(&record);

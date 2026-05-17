@@ -114,10 +114,7 @@ pub fn parse_components(raw: &serde_json::Value) -> Vec<VelaComponent> {
     let mut health_map: std::collections::HashMap<String, (bool, String, Vec<VelaTrait>)> =
         std::collections::HashMap::new();
 
-    if let Some(services) = raw
-        .pointer("/status/services")
-        .and_then(|v| v.as_array())
-    {
+    if let Some(services) = raw.pointer("/status/services").and_then(|v| v.as_array()) {
         for svc in services {
             let name = str_or(svc, "name");
             let healthy = svc
@@ -132,10 +129,7 @@ pub fn parse_components(raw: &serde_json::Value) -> Vec<VelaComponent> {
                     arr.iter()
                         .map(|t| VelaTrait {
                             trait_type: str_or(t, "type"),
-                            healthy: t
-                                .get("healthy")
-                                .and_then(|v| v.as_bool())
-                                .unwrap_or(false),
+                            healthy: t.get("healthy").and_then(|v| v.as_bool()).unwrap_or(false),
                             message: str_or(t, "message"),
                         })
                         .collect()
@@ -157,9 +151,10 @@ pub fn parse_components(raw: &serde_json::Value) -> Vec<VelaComponent> {
         .map(|c| {
             let name = str_or(c, "name");
             let workload_type = str_or(c, "type");
-            let (healthy, message, traits) = health_map
-                .remove(&name)
-                .unwrap_or((false, String::new(), vec![]));
+            let (healthy, message, traits) =
+                health_map
+                    .remove(&name)
+                    .unwrap_or((false, String::new(), vec![]));
             VelaComponent {
                 name,
                 workload_type,

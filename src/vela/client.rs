@@ -58,10 +58,7 @@ pub async fn is_installed(client: &kube::Client) -> bool {
 /// List all Application CRs, optionally scoped to a namespace.
 ///
 /// Silently returns an empty `Vec` on errors (callers show "not installed" hint).
-pub async fn list_apps(
-    client: &kube::Client,
-    namespace: Option<&str>,
-) -> Vec<VelaApplication> {
+pub async fn list_apps(client: &kube::Client, namespace: Option<&str>) -> Vec<VelaApplication> {
     let ar = app_resource();
     let api: Api<DynamicObject> = match namespace {
         Some(ns) if !ns.is_empty() => Api::namespaced_with(client.clone(), ns, &ar),
@@ -92,8 +89,7 @@ pub async fn list_revisions(
     };
 
     // Label selector: filter to revisions belonging to this application.
-    let lp = ListParams::default()
-        .labels(&format!("app.oam.dev/name={app_name}"));
+    let lp = ListParams::default().labels(&format!("app.oam.dev/name={app_name}"));
     let Ok(list) = api.list(&lp).await else {
         return Vec::new();
     };
@@ -111,10 +107,7 @@ pub async fn list_revisions(
 /// List all definitions of the given type.
 ///
 /// `def_type` should be one of `"component"`, `"trait"`, `"workflowstep"`, `"policy"`.
-pub async fn list_definitions(
-    client: &kube::Client,
-    def_type: &str,
-) -> Vec<VelaDefinition> {
+pub async fn list_definitions(client: &kube::Client, def_type: &str) -> Vec<VelaDefinition> {
     let (plural, kind, label) = match def_type.to_lowercase().as_str() {
         "trait" => ("traitdefinitions", "TraitDefinition", "Trait"),
         "workflowstep" | "workflow" => (
@@ -290,10 +283,7 @@ mod tests {
     #[test]
     fn revision_number_from_label_preferred() {
         let mut labels = std::collections::BTreeMap::new();
-        labels.insert(
-            "app.oam.dev/appRevision".to_string(),
-            "12".to_string(),
-        );
+        labels.insert("app.oam.dev/appRevision".to_string(), "12".to_string());
         let obj = DynamicObject {
             types: None,
             metadata: kube::api::ObjectMeta {

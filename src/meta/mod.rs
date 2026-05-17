@@ -17,7 +17,7 @@ pub mod store;
 
 pub use history::{summarise, ClusterHistory};
 pub use record::{
-    InteractionAction, InteractionRecord, IssueRecord, MetadataRecord, NodeSummary,
-    SnapshotRecord, WorkloadSummary,
+    InteractionAction, InteractionRecord, IssueRecord, MetadataRecord, NodeSummary, SnapshotRecord,
+    WorkloadSummary,
 };
 pub use store::{IndexFile, MetadataStore};

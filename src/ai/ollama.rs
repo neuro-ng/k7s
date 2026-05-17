@@ -231,13 +231,13 @@ impl Provider for OllamaProvider {
                         self.config.model
                     )
                 };
-                anyhow::bail!(
-                    "Ollama model '{}' not found.\n{hint}",
-                    self.config.model
-                );
+                anyhow::bail!("Ollama model '{}' not found.\n{hint}", self.config.model);
             }
 
-            anyhow::bail!("{}", format_ollama_error(status, &body_text, &self.config.host));
+            anyhow::bail!(
+                "{}",
+                format_ollama_error(status, &body_text, &self.config.host)
+            );
         }
 
         let parsed: ChatResponse = response
@@ -317,7 +317,10 @@ impl Provider for OllamaProvider {
                 match serde_json::from_str::<StreamingChunk>(&line) {
                     Ok(chunk) => {
                         if !chunk.message.content.is_empty()
-                            && tx.send(StreamChunk::Delta(chunk.message.content)).await.is_err()
+                            && tx
+                                .send(StreamChunk::Delta(chunk.message.content))
+                                .await
+                                .is_err()
                         {
                             return Ok(());
                         }
@@ -417,7 +420,8 @@ mod tests {
 
     #[test]
     fn chat_response_deserialises() {
-        let raw = r#"{"model":"llama3.2","message":{"role":"assistant","content":"Hello!"},"done":true}"#;
+        let raw =
+            r#"{"model":"llama3.2","message":{"role":"assistant","content":"Hello!"},"done":true}"#;
         let parsed: ChatResponse = serde_json::from_str(raw).unwrap();
         assert_eq!(parsed.message.content, "Hello!");
     }

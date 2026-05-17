@@ -244,7 +244,9 @@ mod tests {
     #[test]
     fn request_url_uses_ampersand_when_query_already_present() {
         let cfg = AzureConfig {
-            endpoint: "https://my.openai.azure.com/openai/deployments/gpt-4o/chat/completions?foo=bar".to_owned(),
+            endpoint:
+                "https://my.openai.azure.com/openai/deployments/gpt-4o/chat/completions?foo=bar"
+                    .to_owned(),
             api_version: "2024-02-01".to_owned(),
             ..Default::default()
         };
@@ -292,7 +294,10 @@ mod tests {
             temperature: 0.3,
         };
         let json = serde_json::to_value(&req).unwrap();
-        assert!(json.get("model").is_none(), "Azure request must not include model");
+        assert!(
+            json.get("model").is_none(),
+            "Azure request must not include model"
+        );
         assert_eq!(json["messages"][0]["role"], "user");
     }
 

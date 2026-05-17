@@ -193,7 +193,9 @@ impl Provider for ApiKeyProvider {
             let status = response.status();
             let body_text = response.text().await.unwrap_or_default();
             let _ = tx
-                .send(StreamChunk::Error(format!("LLM API error {status}: {body_text}")))
+                .send(StreamChunk::Error(format!(
+                    "LLM API error {status}: {body_text}"
+                )))
                 .await;
             return Ok(());
         }

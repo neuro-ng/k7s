@@ -339,7 +339,8 @@ mod tests {
     #[test]
     fn markdown_excludes_system_messages() {
         let mut log = ChatLog::new(None);
-        log.messages.push(ChatLogMessage::new(Role::System, "Internal system prompt"));
+        log.messages
+            .push(ChatLogMessage::new(Role::System, "Internal system prompt"));
         log.messages.push(ChatLogMessage::new(Role::User, "Hello?"));
         let md = log.to_markdown();
         assert!(!md.contains("Internal system prompt"));
@@ -349,8 +350,12 @@ mod tests {
     #[test]
     fn markdown_labels_user_and_assistant() {
         let mut log = ChatLog::new(None);
-        log.messages.push(ChatLogMessage::new(Role::User, "What is wrong?"));
-        log.messages.push(ChatLogMessage::new(Role::Assistant, "The pod is crashlooping."));
+        log.messages
+            .push(ChatLogMessage::new(Role::User, "What is wrong?"));
+        log.messages.push(ChatLogMessage::new(
+            Role::Assistant,
+            "The pod is crashlooping.",
+        ));
         let md = log.to_markdown();
         assert!(md.contains("**User**"));
         assert!(md.contains("**Assistant**"));

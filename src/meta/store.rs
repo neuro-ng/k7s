@@ -81,9 +81,7 @@ impl MetadataStore {
                 let name = name.to_string_lossy();
                 if name.ends_with(".json") && name != "index.json" {
                     let stem = name.trim_end_matches(".json");
-                    if let Ok(date) =
-                        NaiveDate::parse_from_str(stem, "%Y-%m-%d")
-                    {
+                    if let Ok(date) = NaiveDate::parse_from_str(stem, "%Y-%m-%d") {
                         dates.push(date);
                     }
                 }
@@ -226,22 +224,36 @@ mod tests {
     /// Build a store backed by a temp directory (avoids touching XDG dirs).
     fn temp_store() -> (MetadataStore, TempDir) {
         let dir = TempDir::new().unwrap();
-        let store = MetadataStore { base: dir.path().to_path_buf() };
+        let store = MetadataStore {
+            base: dir.path().to_path_buf(),
+        };
         (store, dir)
     }
 
     fn make_snapshot() -> MetadataRecord {
         MetadataRecord::Snapshot(SnapshotRecord::new(
-            NodeSummary { total: 3, ready: 3, not_ready: 0 },
+            NodeSummary {
+                total: 3,
+                ready: 3,
+                not_ready: 0,
+            },
             vec!["default".into()],
-            WorkloadSummary { deployments: 2, running: 2, degraded: 0 },
+            WorkloadSummary {
+                deployments: 2,
+                running: 2,
+                degraded: 0,
+            },
             "1.30.2",
         ))
     }
 
     fn make_issue() -> MetadataRecord {
         MetadataRecord::Issue(IssueRecord::new(
-            "CrashLoopBackOff", "prod", "api", "Pod", "exited 137",
+            "CrashLoopBackOff",
+            "prod",
+            "api",
+            "Pod",
+            "exited 137",
         ))
     }
 

@@ -172,7 +172,6 @@ impl ClusterMetaView {
 
             // Left/Right or h/l — navigate between date list and record table.
             // j/k or Up/Down navigate within the focused pane.
-
             KeyCode::Up | KeyCode::Char('k') => {
                 // Move record table if dates are loaded, else move date list.
                 if !self.filtered.is_empty() {
@@ -534,16 +533,28 @@ mod tests {
 
     fn make_snapshot() -> MetadataRecord {
         MetadataRecord::Snapshot(SnapshotRecord::new(
-            NodeSummary { total: 2, ready: 2, not_ready: 0 },
+            NodeSummary {
+                total: 2,
+                ready: 2,
+                not_ready: 0,
+            },
             vec!["default".into()],
-            WorkloadSummary { deployments: 1, running: 1, degraded: 0 },
+            WorkloadSummary {
+                deployments: 1,
+                running: 1,
+                degraded: 0,
+            },
             "1.30.0",
         ))
     }
 
     fn make_issue() -> MetadataRecord {
         MetadataRecord::Issue(IssueRecord::new(
-            "CrashLoopBackOff", "prod", "api", "Pod", "exited",
+            "CrashLoopBackOff",
+            "prod",
+            "api",
+            "Pod",
+            "exited",
         ))
     }
 

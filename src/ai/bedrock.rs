@@ -62,10 +62,7 @@ impl AwsCredentials {
     pub fn from_profile(profile: &str) -> anyhow::Result<Self> {
         let path = credentials_path()?;
         let raw = std::fs::read_to_string(&path).map_err(|e| {
-            anyhow::anyhow!(
-                "cannot read AWS credentials from {}: {e}",
-                path.display()
-            )
+            anyhow::anyhow!("cannot read AWS credentials from {}: {e}", path.display())
         })?;
         parse_credentials_ini(&raw, profile)
     }
@@ -78,8 +75,8 @@ fn credentials_path() -> anyhow::Result<PathBuf> {
     if let Ok(p) = std::env::var("AWS_SHARED_CREDENTIALS_FILE") {
         return Ok(PathBuf::from(p));
     }
-    let home = dirs::home_dir()
-        .ok_or_else(|| anyhow::anyhow!("cannot determine home directory"))?;
+    let home =
+        dirs::home_dir().ok_or_else(|| anyhow::anyhow!("cannot determine home directory"))?;
     Ok(home.join(".aws").join("credentials"))
 }
 
@@ -149,8 +146,7 @@ fn sha256_hex(data: &[u8]) -> String {
 
 fn hmac_sha256(key: &[u8], data: &[u8]) -> Vec<u8> {
     type HmacSha256 = Hmac<Sha256>;
-    let mut mac = HmacSha256::new_from_slice(key)
-        .expect("HMAC accepts keys of any size");
+    let mut mac = HmacSha256::new_from_slice(key).expect("HMAC accepts keys of any size");
     mac.update(data);
     mac.finalize().into_bytes().to_vec()
 }
@@ -206,9 +202,8 @@ fn build_auth_headers(
 
     // 4. Canonical request
     let payload_hash = sha256_hex(body);
-    let canonical_request = format!(
-        "POST\n/model/{model_id}/converse\n\n{canonical_headers}\n{sh}\n{payload_hash}"
-    );
+    let canonical_request =
+        format!("POST\n/model/{model_id}/converse\n\n{canonical_headers}\n{sh}\n{payload_hash}");
 
     // 5. Credential scope
     let credential_scope = format!("{date}/{region}/bedrock-runtime/aws4_request");
@@ -503,7 +498,9 @@ mod tests {
 
     #[test]
     fn default_model_is_claude() {
-        assert!(BedrockProviderConfig::default().model.starts_with("us.anthropic"));
+        assert!(BedrockProviderConfig::default()
+            .model
+            .starts_with("us.anthropic"));
     }
 
     #[test]
@@ -551,7 +548,10 @@ mod tests {
         let p = BedrockProvider::new(BedrockProviderConfig::default());
         let messages = vec![Message::system("system only")];
         let result = p.complete(&messages).await;
-        assert!(result.is_err(), "expected Err when no user/assistant messages");
+        assert!(
+            result.is_err(),
+            "expected Err when no user/assistant messages"
+        );
     }
 
     #[test]

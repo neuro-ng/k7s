@@ -28,6 +28,7 @@ pub mod helm;
 pub mod hpa;
 pub mod job;
 pub mod limit_range;
+pub mod meta;
 pub mod namespace;
 pub mod node;
 pub mod pdb;
@@ -40,7 +41,6 @@ pub mod resource_quota;
 pub mod secret;
 pub mod service;
 pub mod stateful_set;
-pub mod meta;
 pub mod storage_class;
 pub mod vela;
 

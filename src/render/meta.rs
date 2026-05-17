@@ -52,23 +52,38 @@ mod tests {
 
     fn make_snapshot() -> MetadataRecord {
         MetadataRecord::Snapshot(SnapshotRecord::new(
-            NodeSummary { total: 3, ready: 3, not_ready: 0 },
+            NodeSummary {
+                total: 3,
+                ready: 3,
+                not_ready: 0,
+            },
             vec!["default".into()],
-            WorkloadSummary { deployments: 2, running: 2, degraded: 0 },
+            WorkloadSummary {
+                deployments: 2,
+                running: 2,
+                degraded: 0,
+            },
             "1.30.2",
         ))
     }
 
     fn make_issue() -> MetadataRecord {
         MetadataRecord::Issue(IssueRecord::new(
-            "CrashLoopBackOff", "prod", "api", "Pod", "exited 137",
+            "CrashLoopBackOff",
+            "prod",
+            "api",
+            "Pod",
+            "exited 137",
         ))
     }
 
     fn make_interaction() -> MetadataRecord {
         MetadataRecord::Interaction(InteractionRecord::new(
             InteractionAction::DeletePod,
-            "prod", "bad-pod", "Pod", "success",
+            "prod",
+            "bad-pod",
+            "Pod",
+            "success",
         ))
     }
 
