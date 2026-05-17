@@ -167,7 +167,7 @@ jobs:
             BUILD_DATE=${{ github.event.head_commit.timestamp }}
 
       - name: Scan :full image with Trivy
-        uses: aquasecurity/trivy-action@0.28.0
+        uses: aquasecurity/trivy-action@v0.36.0
         with:
           image-ref: k7s-full-scan:latest
           format: sarif
