@@ -25,6 +25,7 @@ pub mod sanitizer;
 pub mod ui;
 pub mod util;
 pub mod view;
+pub mod meta;
 pub mod vela;
 pub mod vul;
 pub mod watch;

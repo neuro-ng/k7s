@@ -40,6 +40,7 @@ pub mod resource_quota;
 pub mod secret;
 pub mod service;
 pub mod stateful_set;
+pub mod meta;
 pub mod storage_class;
 pub mod vela;
 

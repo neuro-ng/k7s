@@ -28,6 +28,7 @@ mod model;
 mod portforward;
 mod render;
 mod sanitizer;
+mod meta;
 mod util;
 mod vela;
 mod view;
@@ -289,6 +290,17 @@ enum Commands {
         /// Which entry to replay (1 = most recent, default).
         n: Option<usize>,
     },
+
+    /// Manage the cluster metadata journal.
+    ///
+    /// k7s silently journals cluster snapshots, expert-scan issues, and
+    /// operator interactions to `~/.local/state/k7s/cluster-metadata/<context>/`
+    /// as dated JSON-lines files.  This subcommand lets you list, inspect,
+    /// prune, and export that journal from the CLI.
+    Meta {
+        #[command(subcommand)]
+        action: MetaAction,
+    },
 }
 
 #[derive(Subcommand, Debug)]
@@ -311,6 +323,61 @@ enum RolloutAction {
     Resume { resource: String, name: String },
     /// List rollout history.
     History { resource: String, name: String },
+}
+
+/// Subcommands for `k7s meta`.
+#[derive(Subcommand, Debug)]
+enum MetaAction {
+    /// List available dates in the metadata journal.
+    ///
+    /// Shows dates for which daily files exist, with a record count for each.
+    List {
+        /// kubeconfig context name (defaults to the active context).
+        #[arg(long, short = 'c')]
+        context: Option<String>,
+        /// Only show the last N days.
+        #[arg(long, short = 'd', default_value = "30")]
+        days: u8,
+        /// Filter by record type: snapshot, issue, interaction.
+        #[arg(long, short = 't')]
+        r#type: Option<String>,
+    },
+
+    /// Show all records for a specific date.
+    Show {
+        /// Date in YYYY-MM-DD format.
+        date: String,
+        /// kubeconfig context name (defaults to the active context).
+        #[arg(long, short = 'c')]
+        context: Option<String>,
+    },
+
+    /// Delete old daily files from the metadata journal.
+    ///
+    /// Files strictly older than `--before` are removed.
+    Prune {
+        /// Delete files older than this date (YYYY-MM-DD).
+        #[arg(long)]
+        before: Option<String>,
+        /// kubeconfig context name (defaults to the active context).
+        #[arg(long, short = 'c')]
+        context: Option<String>,
+    },
+
+    /// Export the journal as a Markdown incident-postmortem report.
+    ///
+    /// Writes to stdout; redirect to a file with `> report.md`.
+    Export {
+        /// kubeconfig context name (defaults to the active context).
+        #[arg(long, short = 'c')]
+        context: Option<String>,
+        /// Number of days to include.
+        #[arg(long, short = 'd', default_value = "7")]
+        days: u8,
+        /// Output format: `json` or `markdown` (default).
+        #[arg(long, short = 'o', default_value = "markdown")]
+        output: String,
+    },
 }
 
 // ─── Entry point ─────────────────────────────────────────────────────────────
@@ -590,6 +657,11 @@ fn run_subcommand(
                 }
             }
         }
+
+        // ── Meta journal ─────────────────────────────────────────────────────
+        Commands::Meta { action } => {
+            run_meta(action, context)?;
+        }
     }
 
     Ok(())
@@ -718,6 +790,186 @@ fn build_rollout_args(action: RolloutAction) -> Vec<String> {
             vec!["rollout".into(), "history".into(), resource, name]
         }
     }
+}
+
+// ─── `k7s meta` handler ──────────────────────────────────────────────────────
+
+/// Resolve the kubeconfig context name to use for meta operations.
+///
+/// Priority: `--context` CLI flag → `KUBECONFIG` active context → `"default"`.
+fn resolve_meta_context(override_ctx: &Option<String>) -> String {
+    if let Some(ctx) = override_ctx {
+        return ctx.clone();
+    }
+    // Try reading the active context from kubeconfig.
+    let output = std::process::Command::new("kubectl")
+        .args(["config", "current-context"])
+        .output();
+    if let Ok(out) = output {
+        if out.status.success() {
+            let s = String::from_utf8_lossy(&out.stdout).trim().to_string();
+            if !s.is_empty() {
+                return s;
+            }
+        }
+    }
+    "default".to_owned()
+}
+
+fn run_meta(action: MetaAction, global_context: &Option<String>) -> anyhow::Result<()> {
+    match action {
+        // ── list ──────────────────────────────────────────────────────────────
+        MetaAction::List { context, days, r#type: type_filter } => {
+            let ctx = resolve_meta_context(&context.or_else(|| global_context.clone()));
+            let Some(store) = meta::MetadataStore::new(&ctx) else {
+                eprintln!("k7s meta: cannot open metadata store for context '{ctx}'");
+                process::exit(1);
+            };
+
+            let today = chrono::Utc::now().date_naive();
+            println!("Cluster metadata journal — context: {ctx}");
+            println!("{}", "─".repeat(60));
+            println!("{:<12} {:>8}  TYPE BREAKDOWN", "DATE", "RECORDS");
+            println!("{}", "─".repeat(60));
+
+            let mut total = 0usize;
+            for i in (0..days as i64).rev() {
+                let date = today - chrono::Duration::days(i);
+                let records = store.load_day(date);
+                if records.is_empty() {
+                    continue;
+                }
+                let filtered: Vec<_> = if let Some(ref tf) = type_filter {
+                    records.iter().filter(|r| r.type_label() == tf.as_str()).collect()
+                } else {
+                    records.iter().collect()
+                };
+                if filtered.is_empty() {
+                    continue;
+                }
+                let snapshots = filtered.iter().filter(|r| r.type_label() == "snapshot").count();
+                let issues   = filtered.iter().filter(|r| r.type_label() == "issue").count();
+                let actions  = filtered.iter().filter(|r| r.type_label() == "interaction").count();
+                println!(
+                    "{:<12} {:>8}  snap={snapshots} issue={issues} action={actions}",
+                    date.format("%Y-%m-%d"),
+                    filtered.len()
+                );
+                total += filtered.len();
+            }
+            println!("{}", "─".repeat(60));
+            println!("Total: {total} records over last {days} days");
+        }
+
+        // ── show ──────────────────────────────────────────────────────────────
+        MetaAction::Show { date, context } => {
+            let ctx = resolve_meta_context(&context.or_else(|| global_context.clone()));
+            let Some(store) = meta::MetadataStore::new(&ctx) else {
+                eprintln!("k7s meta: cannot open metadata store for context '{ctx}'");
+                process::exit(1);
+            };
+
+            let parsed = chrono::NaiveDate::parse_from_str(&date, "%Y-%m-%d")
+                .map_err(|_| anyhow::anyhow!("invalid date '{date}' — expected YYYY-MM-DD"))?;
+
+            let records = store.load_day(parsed);
+            if records.is_empty() {
+                println!("No records for {date} in context '{ctx}'.");
+                return Ok(());
+            }
+
+            println!("Cluster metadata — context: {ctx}  date: {date}");
+            println!("{}", "─".repeat(60));
+            for record in &records {
+                let ts = record.timestamp().format("%H:%M:%S");
+                println!("[{}] [{}] {}", ts, record.type_label().to_uppercase(), record.summary());
+            }
+            println!();
+            println!("{} records.", records.len());
+        }
+
+        // ── prune ─────────────────────────────────────────────────────────────
+        MetaAction::Prune { before, context } => {
+            let ctx = resolve_meta_context(&context.or_else(|| global_context.clone()));
+            let Some(store) = meta::MetadataStore::new(&ctx) else {
+                eprintln!("k7s meta: cannot open metadata store for context '{ctx}'");
+                process::exit(1);
+            };
+
+            let cutoff = if let Some(ref s) = before {
+                chrono::NaiveDate::parse_from_str(s, "%Y-%m-%d")
+                    .map_err(|_| anyhow::anyhow!("invalid date '{s}' — expected YYYY-MM-DD"))?
+            } else {
+                // Default: keep last 90 days.
+                chrono::Utc::now().date_naive() - chrono::Duration::days(90)
+            };
+
+            let deleted = store.prune(cutoff)?;
+            if deleted == 0 {
+                println!("k7s meta prune: nothing to delete.");
+            } else {
+                println!("k7s meta prune: deleted {deleted} daily file(s) older than {cutoff}.");
+            }
+        }
+
+        // ── export ────────────────────────────────────────────────────────────
+        MetaAction::Export { context, days, output } => {
+            let ctx = resolve_meta_context(&context.or_else(|| global_context.clone()));
+            let Some(store) = meta::MetadataStore::new(&ctx) else {
+                eprintln!("k7s meta: cannot open metadata store for context '{ctx}'");
+                process::exit(1);
+            };
+
+            let records = store.load_recent(days);
+            if records.is_empty() {
+                eprintln!("k7s meta export: no records for context '{ctx}' in the last {days} days.");
+                return Ok(());
+            }
+
+            match output.as_str() {
+                "json" => {
+                    let json = serde_json::to_string_pretty(&records)
+                        .map_err(|e| anyhow::anyhow!("JSON serialization error: {e}"))?;
+                    println!("{json}");
+                }
+                _ => {
+                    // Markdown postmortem report.
+                    let history = meta::summarise(&records, days, &ctx);
+                    let today = chrono::Utc::now().date_naive();
+                    println!("# Cluster Incident Report — {ctx}");
+                    println!();
+                    println!("**Generated:** {}  **Period:** last {days} days", today.format("%Y-%m-%d"));
+                    println!();
+                    println!("## Summary");
+                    println!();
+                    println!("{}", history.to_context_block());
+                    println!();
+                    println!("## Full Record Log");
+                    println!();
+
+                    let today_naive = chrono::Utc::now().date_naive();
+                    for i in (0..days as i64).rev() {
+                        let date = today_naive - chrono::Duration::days(i);
+                        let day_records: Vec<_> = records.iter()
+                            .filter(|r| r.timestamp().date_naive() == date)
+                            .collect();
+                        if day_records.is_empty() {
+                            continue;
+                        }
+                        println!("### {}", date.format("%Y-%m-%d"));
+                        println!();
+                        for record in day_records {
+                            let ts = record.timestamp().format("%H:%M:%S UTC");
+                            println!("- **[{}]** `{}` — {}", record.type_label(), ts, record.summary());
+                        }
+                        println!();
+                    }
+                }
+            }
+        }
+    }
+
+    Ok(())
 }
 
 // ─── Tracing init ─────────────────────────────────────────────────────────────

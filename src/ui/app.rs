@@ -117,6 +117,8 @@ enum Mode {
     Vela,
     /// KubeVela capability definitions view (`:veladefs` / `:vd`).
     VelaDefs,
+    /// Cluster Metadata Store view (`:meta` / `:cmeta`).
+    Meta,
 }
 
 /// Outcome of the background cluster connection attempt.
@@ -148,6 +150,17 @@ struct WorkloadData {
 enum OpResult {
     Ok(String),
     Err(String),
+}
+
+/// Cluster metadata background data variants — Phase 37.
+#[derive(Debug)]
+enum MetaData {
+    /// Available dates loaded from the store index.
+    Dates(Vec<chrono::NaiveDate>),
+    /// Records for a specific date.
+    Records(Vec<crate::meta::MetadataRecord>, chrono::NaiveDate),
+    /// Snapshot written on connect.
+    Snapshot,
 }
 
 /// KubeVela background data variants — Phase 36.
@@ -327,6 +340,15 @@ pub struct App {
     vela_data_tx: mpsc::Sender<VelaData>,
     vela_data_rx: mpsc::Receiver<VelaData>,
 
+    // ── Cluster Metadata Store (Phase 37) ────────────────────────────────────
+    /// Cluster metadata browse view.
+    meta_view: crate::view::meta::ClusterMetaView,
+    /// Channel for background metadata loads.
+    meta_data_tx: mpsc::Sender<MetaData>,
+    meta_data_rx: mpsc::Receiver<MetaData>,
+    /// Cluster context name used for the metadata store (set on connect).
+    meta_context: Option<String>,
+
     // ── Config live-reload ────────────────────────────────────────────────────
     /// Receives `()` whenever the config file changes on disk.
     config_reload_rx: Option<mpsc::Receiver<()>>,
@@ -358,6 +380,7 @@ impl App {
         let (expert_alert_tx, expert_alert_rx) = mpsc::channel(32);
         let (context_ready_tx, context_ready_rx) = mpsc::channel(4);
         let (vela_data_tx, vela_data_rx) = mpsc::channel(4);
+        let (meta_data_tx, meta_data_rx) = mpsc::channel(4);
 
         // Build the LLM provider from config if an API key is available.
         let chat_provider = build_provider(&config);
@@ -525,6 +548,10 @@ impl App {
             vela_view: crate::view::vela::VelaView::new(),
             vela_data_tx,
             vela_data_rx,
+            meta_view: crate::view::meta::ClusterMetaView::new(),
+            meta_data_tx,
+            meta_data_rx,
+            meta_context: None,
             op_result_tx,
             op_result_rx,
             config_reload_rx,
@@ -811,6 +838,30 @@ impl App {
             return;
         }
 
+        if matches!(alias, "meta" | "cmeta") {
+            self.history.push("meta");
+            self.cmd_history.push(
+                HistorySource::Tui,
+                format!("navigate:{alias}"),
+                None,
+                self.namespace.clone(),
+                true,
+            );
+            self.meta_view = crate::view::meta::ClusterMetaView::new();
+            self.mode = Mode::Meta;
+            // Load date index asynchronously.
+            let tx = self.meta_data_tx.clone();
+            let ctx = self.meta_context.clone();
+            tokio::spawn(async move {
+                let dates = ctx
+                    .and_then(|c| crate::meta::MetadataStore::new(&c))
+                    .map(|s| s.list_dates())
+                    .unwrap_or_default();
+                let _ = tx.send(MetaData::Dates(dates)).await;
+            });
+            return;
+        }
+
         if let Some(view) = crate::view::browser_for_resource(alias, &self.registry) {
             self.history.push(alias);
             self.cmd_history.push(
@@ -917,13 +968,50 @@ impl App {
                 } => {
                     tracing::info!(ctx = %context, ver = %version, "cluster connected");
                     self.factory = Some(Arc::new(RwLock::new(WatcherFactory::new(client.clone()))));
-                    self.kube_client = Some(client);
-                    self.connection = ConnectionState::Connected { context, version };
+                    self.kube_client = Some(client.clone());
+                    self.connection = ConnectionState::Connected {
+                        context: context.clone(),
+                        version: version.clone(),
+                    };
+                    self.meta_context = Some(context.clone());
                     self.start_metrics_poller();
                     // Start watcher for whatever view is currently active.
                     self.start_browser_watcher();
                     // Kick off expert scan if expert mode was pre-enabled (--expert flag).
                     self.start_expert_scan();
+                    // Write a snapshot record to the metadata store if enabled.
+                    if self.config.k7s.meta.enabled
+                        && self.config.k7s.meta.snapshot_on_connect
+                    {
+                        let tx = self.meta_data_tx.clone();
+                        let ctx = context.clone();
+                        let ver = version.clone();
+                        let kube = client.clone();
+                        tokio::spawn(async move {
+                            let summary = crate::health::build_cluster_summary(&kube, None).await;
+                            let ns_list: Vec<String> = vec![]; // namespaces captured by summary
+                            let record = crate::meta::MetadataRecord::Snapshot(
+                                crate::meta::SnapshotRecord::new(
+                                    crate::meta::NodeSummary {
+                                        total: summary.nodes.total as u32,
+                                        ready: summary.nodes.ready as u32,
+                                        not_ready: summary.nodes.not_ready as u32,
+                                    },
+                                    ns_list,
+                                    crate::meta::WorkloadSummary {
+                                        deployments: summary.deployments.total as u32,
+                                        running: summary.deployments.running as u32,
+                                        degraded: summary.deployments.failed as u32,
+                                    },
+                                    &ver,
+                                ),
+                            );
+                            if let Some(store) = crate::meta::MetadataStore::new(&ctx) {
+                                let _ = store.append(&record);
+                            }
+                            let _ = tx.send(MetaData::Snapshot).await;
+                        });
+                    }
                 }
                 ClusterEvent::Error(e) => {
                     tracing::warn!(error = %e, "cluster connection failed");
@@ -973,6 +1061,17 @@ impl App {
                 .refresh(&data.deployments, &data.statefulsets, &data.daemonsets);
         }
 
+        // Drain cluster metadata background data (Phase 37).
+        while let Ok(data) = self.meta_data_rx.try_recv() {
+            match data {
+                MetaData::Dates(dates) => self.meta_view.set_dates(dates),
+                MetaData::Records(records, date) => self.meta_view.set_records(records, date),
+                MetaData::Snapshot => {
+                    tracing::debug!("cluster snapshot written to metadata store");
+                }
+            }
+        }
+
         // Drain KubeVela background data (Phase 36).
         while let Ok(data) = self.vela_data_rx.try_recv() {
             match data {
@@ -989,6 +1088,28 @@ impl App {
                 session.clear_context();
                 for meta in metas {
                     session.add_context(meta);
+                }
+                // 37.21 — inject cluster history as additional context (≤300 tokens).
+                if self.config.k7s.meta.enabled {
+                    if let Some(ctx) = &self.meta_context {
+                        if let Some(store) = crate::meta::MetadataStore::new(ctx) {
+                            let days = self.config.k7s.meta.history_days_for_context;
+                            let records = store.load_recent(days);
+                            if !records.is_empty() {
+                                let history = crate::meta::summarise(&records, days, ctx);
+                                if !history.is_empty() {
+                                    let block = history.to_context_block();
+                                    let history_meta = crate::sanitizer::SafeMetadata {
+                                        gvr: "cluster-history".to_owned(),
+                                        name: ctx.clone(),
+                                        namespace: None,
+                                        fields: serde_json::json!({ "history": block }),
+                                    };
+                                    session.add_context(history_meta);
+                                }
+                            }
+                        }
+                    }
                 }
             }
             self.chat.set_scope(scope.label.clone());
@@ -1009,6 +1130,26 @@ impl App {
             let namespace = alert.namespace.clone();
             let summary = alert.summary.clone();
             self.expert.push_alert(alert);
+
+            // 37.16 — record issue in the metadata journal.
+            if self.config.k7s.meta.enabled {
+                if let Some(ctx) = self.meta_context.clone() {
+                    let kind = summary
+                        .split_whitespace()
+                        .next()
+                        .unwrap_or("Unknown")
+                        .trim_end_matches('(')
+                        .to_owned();
+                    let record = crate::meta::MetadataRecord::Issue(
+                        crate::meta::IssueRecord::new(&kind, &namespace, &resource, "Pod", &summary),
+                    );
+                    tokio::spawn(async move {
+                        if let Some(store) = crate::meta::MetadataStore::new(&ctx) {
+                            let _ = store.append(&record);
+                        }
+                    });
+                }
+            }
 
             // Fire an async LLM analysis for this alert if a provider is ready.
             if let Some(provider) = self.chat_provider.clone() {
@@ -1809,6 +1950,47 @@ fn handle_key_event(app: &mut App, key: crossterm::event::KeyEvent) {
                 );
             }
             crate::view::VelaAction::None => {}
+        }
+        return;
+    }
+
+    // ── Cluster Metadata Store view ───────────────────────────────────────────
+    if app.mode == Mode::Meta {
+        let action = app.meta_view.handle_key(&key);
+        match action {
+            crate::view::MetaAction::Close => {
+                app.mode = Mode::Browse;
+            }
+            crate::view::MetaAction::LoadDate(date) => {
+                let tx = app.meta_data_tx.clone();
+                let ctx = app.meta_context.clone();
+                tokio::spawn(async move {
+                    let records = ctx
+                        .and_then(|c| crate::meta::MetadataStore::new(&c))
+                        .map(|s| s.load_day(date))
+                        .unwrap_or_default();
+                    let _ = tx.send(MetaData::Records(records, date)).await;
+                });
+            }
+            crate::view::MetaAction::InjectToChat(context) => {
+                app.chat.set_scope("cluster-meta".to_string());
+                app.mode = Mode::Chat;
+                app.chat.push_message(
+                    Role::System,
+                    format!("Cluster metadata context injected:\n{context}"),
+                );
+            }
+            crate::view::MetaAction::Prune => {
+                let ctx = app.meta_context.clone();
+                let cfg = app.config.k7s.meta.clone();
+                tokio::spawn(async move {
+                    if let Some(store) = ctx.and_then(|c| crate::meta::MetadataStore::new(&c)) {
+                        store.auto_prune(&cfg);
+                    }
+                });
+                app.flash("Metadata pruned.".to_owned(), Duration::from_secs(2));
+            }
+            crate::view::MetaAction::None => {}
         }
         return;
     }
@@ -2746,14 +2928,55 @@ fn submit_chat_message(app: &mut App, text: String) {
     });
 }
 
+// ─── Metadata journal helpers ────────────────────────────────────────────────
+
+/// Write a single `InteractionRecord` to the metadata store in a background
+/// task.  No-ops when meta is disabled or context is unknown.
+fn meta_append_interaction(
+    app: &App,
+    action: crate::meta::InteractionAction,
+    namespace: &str,
+    resource: &str,
+    resource_kind: &str,
+    outcome: &str,
+) {
+    if !app.config.k7s.meta.enabled || !app.config.k7s.meta.record_interactions {
+        return;
+    }
+    let Some(ctx) = app.meta_context.clone() else { return };
+    let record = crate::meta::MetadataRecord::Interaction(
+        crate::meta::InteractionRecord::new(
+            action,
+            namespace,
+            resource,
+            resource_kind,
+            outcome,
+        ),
+    );
+    tokio::spawn(async move {
+        if let Some(store) = crate::meta::MetadataStore::new(&ctx) {
+            let _ = store.append(&record);
+        }
+    });
+}
+
 // ─── Expert remediation helpers ───────────────────────────────────────────────
 
 /// Translate a selected remediation action into either an immediate mode switch
 /// (ViewLogs) or a confirmation dialog (DeletePod / RolloutRestart).
 fn handle_expert_remediation(app: &mut App, suggestion: RemediationSuggestion) {
     match &suggestion.kind {
-        RemediationKind::ViewLogs { name, namespace: _ } => {
+        RemediationKind::ViewLogs { name, namespace } => {
             // Read-only — no confirmation required; open log viewer immediately.
+            // 37.17 — record the ViewLogs interaction.
+            meta_append_interaction(
+                app,
+                crate::meta::InteractionAction::ViewLogs,
+                namespace,
+                name,
+                "Pod",
+                "success",
+            );
             app.log = LogView::new(name.clone(), vec![]);
             app.mode = Mode::Log;
         }
@@ -2784,6 +3007,15 @@ fn execute_remediation(app: &mut App, suggestion: RemediationSuggestion) {
     match suggestion.kind {
         RemediationKind::ViewLogs { .. } => {} // handled immediately in handle_expert_remediation
         RemediationKind::DeletePod { name, namespace } => {
+            // 37.17 — record interaction before spawning.
+            meta_append_interaction(
+                app,
+                crate::meta::InteractionAction::DeletePod,
+                &namespace,
+                &name,
+                "Pod",
+                "initiated",
+            );
             tokio::spawn(async move {
                 let result = std::process::Command::new("kubectl")
                     .args(["delete", "pod", &name, "-n", &namespace, "--grace-period=0"])
@@ -2805,6 +3037,15 @@ fn execute_remediation(app: &mut App, suggestion: RemediationSuggestion) {
             owner_kind,
             namespace,
         } => {
+            // 37.17 — record interaction before spawning.
+            meta_append_interaction(
+                app,
+                crate::meta::InteractionAction::RolloutRestart,
+                &namespace,
+                &owner,
+                &owner_kind,
+                "initiated",
+            );
             tokio::spawn(async move {
                 let target = format!("{}/{}", owner_kind.to_lowercase(), owner);
                 let result = std::process::Command::new("kubectl")
@@ -2921,6 +3162,7 @@ fn render_header(frame: &mut Frame, app: &App, area: Rect) {
         Mode::Helm => "  [helm]",
         Mode::Vela => "  [vela]",
         Mode::VelaDefs => "  [veladefs]",
+        Mode::Meta => "  [meta]",
         Mode::Browse => "",
     };
 
@@ -3056,6 +3298,9 @@ fn render_main(frame: &mut Frame, app: &mut App, area: Rect) {
         Mode::Vela | Mode::VelaDefs => {
             app.vela_view.render(frame, area);
         }
+        Mode::Meta => {
+            app.meta_view.render(frame, area);
+        }
         Mode::Metrics => {
             let ctx = match &app.connection {
                 ConnectionState::Connected { context, .. } => context.as_str(),
@@ -3135,6 +3380,17 @@ fn render_footer(frame: &mut Frame, app: &App, area: Rect) {
         frame.render_widget(
             Paragraph::new("  ↑↓/jk navigate  Tab next type  r refresh  q close")
                 .style(Style::default().fg(Color::DarkGray)),
+            area,
+        );
+        return;
+    }
+
+    if app.mode == Mode::Meta {
+        frame.render_widget(
+            Paragraph::new(
+                "  ↑↓/jk navigate  Enter detail  f filter  c inject to chat  p prune  r refresh  q close",
+            )
+            .style(Style::default().fg(Color::DarkGray)),
             area,
         );
         return;

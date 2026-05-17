@@ -100,6 +100,7 @@ pub struct K7sConfig {
     pub ai: AiConfig,
     pub helm: HelmConfig,
     pub vela: VelaConfig,
+    pub meta: MetaConfig,
     pub benchmark: BenchmarkConfig,
 }
 
@@ -115,6 +116,7 @@ impl Default for K7sConfig {
             ai: AiConfig::default(),
             helm: HelmConfig::default(),
             vela: VelaConfig::default(),
+            meta: MetaConfig::default(),
             benchmark: BenchmarkConfig::default(),
         }
     }
@@ -309,6 +311,37 @@ impl Default for VelaConfig {
         Self {
             enabled: true,
             default_namespace: String::new(),
+        }
+    }
+}
+
+/// Cluster Metadata Store configuration — Phase 37.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct MetaConfig {
+    /// Enable the metadata store. Default: `true`.
+    pub enabled: bool,
+    /// Delete daily files older than this many days. Default: `90`.
+    pub retention_days: u32,
+    /// Prune oldest files when total store size exceeds this. Default: 50 MB.
+    pub max_size_bytes: u64,
+    /// Write a snapshot record each time k7s connects. Default: `true`.
+    pub snapshot_on_connect: bool,
+    /// Record user interactions (delete, scale, port-forward, …). Default: `true`.
+    pub record_interactions: bool,
+    /// Number of history days injected into the LLM context. Default: `7`.
+    pub history_days_for_context: u8,
+}
+
+impl Default for MetaConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            retention_days: 90,
+            max_size_bytes: 52_428_800, // 50 MB
+            snapshot_on_connect: true,
+            record_interactions: true,
+            history_days_for_context: 7,
         }
     }
 }
