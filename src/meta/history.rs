@@ -136,11 +136,11 @@ pub fn summarise(records: &[MetadataRecord], days: u8, context: &str) -> Cluster
             (label, count)
         })
         .collect();
-    recurrent.sort_by(|a, b| b.1.cmp(&a.1));
+    recurrent.sort_by_key(|r| std::cmp::Reverse(r.1));
 
     // Build operator action summary.
     let mut actions: Vec<(String, usize)> = action_counts.into_iter().collect();
-    actions.sort_by(|a, b| b.1.cmp(&a.1));
+    actions.sort_by_key(|a| std::cmp::Reverse(a.1));
 
     // Drift: compare first and last snapshot.
     let (deployment_drift, node_drift) = compute_drift(&snapshots);

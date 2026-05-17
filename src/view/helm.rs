@@ -155,15 +155,11 @@ impl HelmView {
                     self.release_table.select(Some(next));
                 }
             }
-            KeyCode::Home | KeyCode::Char('g') => {
-                if !self.releases.is_empty() {
-                    self.release_table.select(Some(0));
-                }
+            KeyCode::Home | KeyCode::Char('g') if !self.releases.is_empty() => {
+                self.release_table.select(Some(0));
             }
-            KeyCode::End | KeyCode::Char('G') => {
-                if !self.releases.is_empty() {
-                    self.release_table.select(Some(self.releases.len() - 1));
-                }
+            KeyCode::End | KeyCode::Char('G') if !self.releases.is_empty() => {
+                self.release_table.select(Some(self.releases.len() - 1));
             }
 
             // Enter — open history view.

@@ -176,15 +176,11 @@ impl VelaView {
                     self.app_table.select(Some(next));
                 }
             }
-            KeyCode::Home | KeyCode::Char('g') => {
-                if !self.apps.is_empty() {
-                    self.app_table.select(Some(0));
-                }
+            KeyCode::Home | KeyCode::Char('g') if !self.apps.is_empty() => {
+                self.app_table.select(Some(0));
             }
-            KeyCode::End | KeyCode::Char('G') => {
-                if !self.apps.is_empty() {
-                    self.app_table.select(Some(self.apps.len() - 1));
-                }
+            KeyCode::End | KeyCode::Char('G') if !self.apps.is_empty() => {
+                self.app_table.select(Some(self.apps.len() - 1));
             }
 
             // Enter — open component tree for the selected app.

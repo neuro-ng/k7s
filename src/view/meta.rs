@@ -204,10 +204,8 @@ impl ClusterMetaView {
             }
 
             // Tab — move between date list and record table when both loaded.
-            KeyCode::Tab => {
-                if !self.dates.is_empty() {
-                    self.move_date_down();
-                }
+            KeyCode::Tab if !self.dates.is_empty() => {
+                self.move_date_down();
             }
 
             // Enter — open detail for selected record, or load selected date.

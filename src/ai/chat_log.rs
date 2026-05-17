@@ -11,6 +11,7 @@
 //! uniqueness within a single process.  The store is not thread-safe —
 //! it is owned by the main TUI thread.
 
+use std::cmp::Reverse;
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -197,7 +198,7 @@ impl ChatLogStore {
                     .and_then(|s| serde_json::from_str::<ChatLog>(&s).ok())
             })
             .collect();
-        logs.sort_by(|a, b| b.created_at.cmp(&a.created_at));
+        logs.sort_by_key(|l| Reverse(l.created_at));
         logs
     }
 
