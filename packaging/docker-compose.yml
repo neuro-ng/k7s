@@ -1,0 +1,63 @@
+# k7s Docker Compose — Phase 38
+#
+# Runs k7s:full with named volumes for persistent state and config.
+#
+# Usage:
+#   docker compose run --rm k7s
+#   docker compose run --rm k7s --context my-cluster
+#   docker compose run --rm k7s --readonly
+#
+# First-time setup:
+#   # Copy your kubeconfig into the named volume:
+#   docker compose run --rm -v "$HOME/.kube/config:/tmp/kubeconfig:ro" k7s \
+#     sh -c "mkdir -p /home/k7s/.kube && cp /tmp/kubeconfig /home/k7s/.kube/config"
+#
+# For Antigravity ADC, add the gcloud-adc service below or mount ADC creds directly:
+#   GOOGLE_APPLICATION_CREDENTIALS=/home/k7s/.config/gcloud/application_default_credentials.json
+
+services:
+  k7s:
+    image: ghcr.io/neuro-ng/k7s:full
+    stdin_open: true
+    tty: true
+    volumes:
+      - kubeconfig:/home/k7s/.kube
+      - k7s-config:/home/k7s/.config/k7s
+      - k7s-state:/home/k7s/.local/state/k7s
+    environment:
+      # Uncomment and set to enable AI features:
+      # K7S_LLM_API_KEY: "${K7S_LLM_API_KEY}"
+
+      # Uncomment for AWS Bedrock provider:
+      # AWS_ACCESS_KEY_ID: "${AWS_ACCESS_KEY_ID}"
+      # AWS_SECRET_ACCESS_KEY: "${AWS_SECRET_ACCESS_KEY}"
+      # AWS_REGION: "${AWS_REGION:-us-east-1}"
+
+      # Uncomment for Google Antigravity ADC:
+      # GOOGLE_APPLICATION_CREDENTIALS: /home/k7s/.config/gcloud/application_default_credentials.json
+    restart: "no"
+
+  # ── Optional: mount host kubeconfig read-only (alternative to named volume) ─
+  # Uncomment this variant instead of the default `k7s` service to bind-mount
+  # your host kubeconfig directly.
+  #
+  # k7s:
+  #   image: ghcr.io/neuro-ng/k7s:full
+  #   stdin_open: true
+  #   tty: true
+  #   volumes:
+  #     - type: bind
+  #       source: "${HOME}/.kube"
+  #       target: /home/k7s/.kube
+  #       read_only: true
+  #     - k7s-config:/home/k7s/.config/k7s
+  #     - k7s-state:/home/k7s/.local/state/k7s
+  #   restart: "no"
+
+volumes:
+  kubeconfig:
+    driver: local
+  k7s-config:
+    driver: local
+  k7s-state:
+    driver: local

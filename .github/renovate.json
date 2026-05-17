@@ -1,0 +1,81 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": ["config:recommended"],
+  "labels": ["dependencies", "automated"],
+  "commitMessagePrefix": "chore(deps):",
+  "prConcurrentLimit": 5,
+  "packageRules": [
+    {
+      "matchManagers": ["cargo"],
+      "groupName": "Rust dependencies",
+      "schedule": ["before 6am on Monday"]
+    },
+    {
+      "matchManagers": ["regex"],
+      "matchFileNames": ["docker/full/versions.env"],
+      "groupName": "Docker tool versions",
+      "commitMessageTopic": "tool versions in docker/full/versions.env",
+      "schedule": ["before 6am on Monday"]
+    }
+  ],
+  "customManagers": [
+    {
+      "customType": "regex",
+      "fileMatch": ["^docker/full/versions\\.env$"],
+      "matchStrings": [
+        "KUBECTL_VERSION=(?<currentValue>v[\\d.]+)"
+      ],
+      "depNameTemplate": "kubernetes/kubernetes",
+      "datasourceTemplate": "github-releases",
+      "versioningTemplate": "semver"
+    },
+    {
+      "customType": "regex",
+      "fileMatch": ["^docker/full/versions\\.env$"],
+      "matchStrings": [
+        "HELM_VERSION=(?<currentValue>v[\\d.]+)"
+      ],
+      "depNameTemplate": "helm/helm",
+      "datasourceTemplate": "github-releases",
+      "versioningTemplate": "semver"
+    },
+    {
+      "customType": "regex",
+      "fileMatch": ["^docker/full/versions\\.env$"],
+      "matchStrings": [
+        "VELA_VERSION=(?<currentValue>v[\\d.]+)"
+      ],
+      "depNameTemplate": "kubevela/kubevela",
+      "datasourceTemplate": "github-releases",
+      "versioningTemplate": "semver"
+    },
+    {
+      "customType": "regex",
+      "fileMatch": ["^docker/full/versions\\.env$"],
+      "matchStrings": [
+        "TRIVY_VERSION=(?<currentValue>v[\\d.]+)"
+      ],
+      "depNameTemplate": "aquasecurity/trivy",
+      "datasourceTemplate": "github-releases",
+      "versioningTemplate": "semver"
+    },
+    {
+      "customType": "regex",
+      "fileMatch": ["^docker/full/versions\\.env$"],
+      "matchStrings": [
+        "GCLOUD_VERSION=(?<currentValue>[\\d.]+)"
+      ],
+      "depNameTemplate": "google-cloud-sdk",
+      "datasourceTemplate": "custom.gcloud",
+      "versioningTemplate": "loose"
+    }
+  ],
+  "customDatasources": {
+    "gcloud": {
+      "defaultRegistryUrlTemplate": "https://pypi.org/pypi/google-cloud-sdk/json",
+      "transformTemplates": [
+        "{\"releases\": $map($keys($.releases), function($v) { {\"version\": $v} })}"
+      ]
+    }
+  }
+}
