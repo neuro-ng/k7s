@@ -1,11 +1,11 @@
 [package]
 name = "k7s"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2021"
 rust-version = "1.77"
 description = "Performance-focused, security-first Kubernetes TUI with AI-powered cluster analysis"
 license = "Apache-2.0"
-repository = "https://github.com/your-org/k7s"
+repository = "https://github.com/neuro-ng/k7s"
 
 [[bin]]
 name = "k7s"
