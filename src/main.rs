@@ -301,6 +301,16 @@ enum Commands {
         #[command(subcommand)]
         action: MetaAction,
     },
+
+    /// Interact with KubeVela Application Platform resources.
+    ///
+    /// Read operations query the Kubernetes API directly.
+    /// Mutating operations (restart, resume, rollback, delete) delegate to the
+    /// `vela` CLI binary, which must be installed and on PATH.
+    Vela {
+        #[command(subcommand)]
+        action: VelaCliAction,
+    },
 }
 
 #[derive(Subcommand, Debug)]
@@ -376,6 +386,99 @@ enum MetaAction {
         days: u8,
         /// Output format: `json` or `markdown` (default).
         #[arg(long, short = 'o', default_value = "markdown")]
+        output: String,
+    },
+}
+
+/// Subcommands for `k7s vela`.
+#[derive(Subcommand, Debug)]
+enum VelaCliAction {
+    /// List all KubeVela Application CRs.
+    List {
+        /// Output format: `table` (default), `json`, or `yaml`.
+        #[arg(short = 'o', long, default_value = "table")]
+        output: String,
+        /// Restrict to a specific namespace.
+        #[arg(short = 'n', long)]
+        namespace: Option<String>,
+    },
+
+    /// Show component health and workflow phase for an application.
+    Status {
+        /// Application name.
+        app: String,
+        /// Namespace of the application.
+        #[arg(short = 'n', long, default_value = "default")]
+        namespace: String,
+    },
+
+    /// Print a text-art component → trait hierarchy for an application.
+    Tree {
+        /// Application name.
+        app: String,
+        /// Namespace of the application.
+        #[arg(short = 'n', long, default_value = "default")]
+        namespace: String,
+    },
+
+    /// Show workflow steps and their phases for an application.
+    Workflow {
+        /// Application name.
+        app: String,
+        /// Namespace of the application.
+        #[arg(short = 'n', long, default_value = "default")]
+        namespace: String,
+    },
+
+    /// Restart the workflow of an application (`vela workflow restart`).
+    Restart {
+        /// Application name.
+        app: String,
+        /// Namespace of the application.
+        #[arg(short = 'n', long, default_value = "default")]
+        namespace: String,
+    },
+
+    /// Resume a suspended workflow (`vela workflow resume`).
+    Resume {
+        /// Application name.
+        app: String,
+        /// Namespace of the application.
+        #[arg(short = 'n', long, default_value = "default")]
+        namespace: String,
+    },
+
+    /// Rollback an application to a previous revision (`vela workflow rollback`).
+    Rollback {
+        /// Application name.
+        app: String,
+        /// Namespace of the application.
+        #[arg(short = 'n', long, default_value = "default")]
+        namespace: String,
+        /// Target revision number (defaults to the previous revision).
+        #[arg(long)]
+        revision: Option<u64>,
+    },
+
+    /// Delete an application (`vela delete`).
+    Delete {
+        /// Application name.
+        app: String,
+        /// Namespace of the application.
+        #[arg(short = 'n', long, default_value = "default")]
+        namespace: String,
+        /// Skip interactive confirmation.
+        #[arg(long, short = 'y')]
+        yes: bool,
+    },
+
+    /// List capability definitions (ComponentDefinition, TraitDefinition, etc.).
+    Defs {
+        /// Filter by type: `component` (default), `trait`, `workflowstep`, `policy`.
+        #[arg(long, short = 't', default_value = "component")]
+        r#type: String,
+        /// Output format: `table` (default), `json`.
+        #[arg(short = 'o', long, default_value = "table")]
         output: String,
     },
 }
@@ -661,6 +764,11 @@ fn run_subcommand(
         // ── Meta journal ─────────────────────────────────────────────────────
         Commands::Meta { action } => {
             run_meta(action, context)?;
+        }
+
+        // ── KubeVela ─────────────────────────────────────────────────────────
+        Commands::Vela { action } => {
+            run_vela(action, context, namespace)?;
         }
     }
 
@@ -1006,6 +1114,280 @@ fn run_meta(action: MetaAction, global_context: &Option<String>) -> anyhow::Resu
     }
 
     Ok(())
+}
+
+// ─── KubeVela CLI handler ─────────────────────────────────────────────────────
+
+fn run_vela(
+    action: VelaCliAction,
+    global_context: &Option<String>,
+    global_namespace: &Option<String>,
+) -> anyhow::Result<()> {
+    match action {
+        // ── list ──────────────────────────────────────────────────────────────
+        VelaCliAction::List { output, namespace } => {
+            let ns_opt = namespace.as_deref().or(global_namespace.as_deref());
+            let rt = tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()?;
+            let apps = rt.block_on(async {
+                let client = build_kube_client(global_context).await?;
+                Ok::<_, anyhow::Error>(crate::vela::client::list_apps(&client, ns_opt).await)
+            })?;
+
+            match output.as_str() {
+                "json" => {
+                    let v: Vec<serde_json::Value> = apps
+                        .iter()
+                        .map(|a| {
+                            serde_json::json!({
+                                "name": a.name,
+                                "namespace": a.namespace,
+                                "status": a.status,
+                                "workflowStatus": a.workflow_status,
+                                "components": a.component_count,
+                                "age": a.age_label()
+                            })
+                        })
+                        .collect();
+                    println!("{}", serde_json::to_string_pretty(&v)?);
+                }
+                _ => {
+                    println!(
+                        "{:<30} {:<18} {:<14} {:<14} {:<6}",
+                        "NAME", "NAMESPACE", "STATUS", "WORKFLOW", "AGE"
+                    );
+                    for a in &apps {
+                        println!(
+                            "{:<30} {:<18} {:<14} {:<14} {:<6}",
+                            a.name,
+                            a.namespace,
+                            a.status,
+                            a.workflow_status,
+                            a.age_label()
+                        );
+                    }
+                }
+            }
+        }
+
+        // ── status ────────────────────────────────────────────────────────────
+        VelaCliAction::Status { app, namespace } => {
+            let rt = tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()?;
+            let raw = rt.block_on(async {
+                let client = build_kube_client(global_context).await?;
+                fetch_vela_app_raw(&client, &app, &namespace).await
+            })?;
+
+            let components = crate::vela::parse_components(&raw);
+            let steps = crate::vela::parse_workflow_steps(&raw);
+
+            println!("Application: {}/{}", namespace, app);
+            println!();
+            println!(
+                "{:<30} {:<14} {:<8} MESSAGE",
+                "COMPONENT", "TYPE", "HEALTHY"
+            );
+            for c in &components {
+                println!(
+                    "{:<30} {:<14} {:<8} {}",
+                    c.name, c.workload_type, c.healthy, c.message
+                );
+            }
+            if !steps.is_empty() {
+                println!();
+                println!("{:<25} {:<18} PHASE", "STEP", "TYPE");
+                for s in &steps {
+                    println!("{:<25} {:<18} {}", s.name, s.step_type, s.phase);
+                }
+            }
+        }
+
+        // ── tree ──────────────────────────────────────────────────────────────
+        VelaCliAction::Tree { app, namespace } => {
+            let rt = tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()?;
+            let raw = rt.block_on(async {
+                let client = build_kube_client(global_context).await?;
+                fetch_vela_app_raw(&client, &app, &namespace).await
+            })?;
+
+            let components = crate::vela::parse_components(&raw);
+            println!("Application: {}/{}", namespace, app);
+            for (i, comp) in components.iter().enumerate() {
+                let is_last = i == components.len() - 1;
+                let prefix = if is_last { "└── " } else { "├── " };
+                let health = if comp.healthy { "✓" } else { "✗" };
+                println!("{prefix}{} ({}) [{health}]", comp.name, comp.workload_type);
+                let trait_prefix = if is_last { "    " } else { "│   " };
+                for (j, t) in comp.traits.iter().enumerate() {
+                    let t_last = j == comp.traits.len() - 1;
+                    let t_pfx = if t_last { "└── " } else { "├── " };
+                    let th = if t.healthy { "✓" } else { "✗" };
+                    println!("{trait_prefix}{t_pfx}[trait] {} [{th}]", t.trait_type);
+                }
+            }
+        }
+
+        // ── workflow ──────────────────────────────────────────────────────────
+        VelaCliAction::Workflow { app, namespace } => {
+            let rt = tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()?;
+            let raw = rt.block_on(async {
+                let client = build_kube_client(global_context).await?;
+                fetch_vela_app_raw(&client, &app, &namespace).await
+            })?;
+
+            let steps = crate::vela::parse_workflow_steps(&raw);
+            println!("Workflow for {}/{}", namespace, app);
+            println!("{:<25} {:<18} {:<14} MESSAGE", "STEP", "TYPE", "PHASE");
+            for s in &steps {
+                println!(
+                    "{:<25} {:<18} {:<14} {}",
+                    s.name, s.step_type, s.phase, s.message
+                );
+            }
+        }
+
+        // ── restart (vela CLI) ────────────────────────────────────────────────
+        VelaCliAction::Restart { app, namespace } => {
+            run_vela_bin(&["workflow", "restart", &app, "-n", &namespace]);
+        }
+
+        // ── resume (vela CLI) ─────────────────────────────────────────────────
+        VelaCliAction::Resume { app, namespace } => {
+            run_vela_bin(&["workflow", "resume", &app, "-n", &namespace]);
+        }
+
+        // ── rollback (vela CLI) ───────────────────────────────────────────────
+        VelaCliAction::Rollback {
+            app,
+            namespace,
+            revision,
+        } => {
+            let mut args = vec![
+                "workflow".to_owned(),
+                "rollback".to_owned(),
+                app,
+                "-n".to_owned(),
+                namespace,
+            ];
+            if let Some(rev) = revision {
+                args.extend(["--revision".to_owned(), rev.to_string()]);
+            }
+            run_vela_bin(&args.iter().map(String::as_str).collect::<Vec<_>>());
+        }
+
+        // ── delete (vela CLI) ─────────────────────────────────────────────────
+        VelaCliAction::Delete {
+            app,
+            namespace,
+            yes,
+        } => {
+            let mut args = vec!["delete", &app, "-n", &namespace];
+            if yes {
+                args.push("--yes");
+            }
+            run_vela_bin(&args);
+        }
+
+        // ── defs ──────────────────────────────────────────────────────────────
+        VelaCliAction::Defs { r#type, output } => {
+            let rt = tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()?;
+            let defs = rt.block_on(async {
+                let client = build_kube_client(global_context).await?;
+                Ok::<_, anyhow::Error>(
+                    crate::vela::client::list_definitions(&client, &r#type).await,
+                )
+            })?;
+
+            match output.as_str() {
+                "json" => {
+                    let v: Vec<serde_json::Value> = defs
+                        .iter()
+                        .map(|d| {
+                            serde_json::json!({
+                                "name": d.name,
+                                "type": d.def_type,
+                                "description": d.description
+                            })
+                        })
+                        .collect();
+                    println!("{}", serde_json::to_string_pretty(&v)?);
+                }
+                _ => {
+                    println!("{:<35} {:<14} DESCRIPTION", "NAME", "TYPE");
+                    for d in &defs {
+                        println!("{:<35} {:<14} {}", d.name, d.def_type, d.description);
+                    }
+                }
+            }
+        }
+    }
+
+    Ok(())
+}
+
+/// Build a kube::Client honoring the optional context override.
+async fn build_kube_client(context: &Option<String>) -> anyhow::Result<kube::Client> {
+    let config = if let Some(ctx) = context {
+        kube::Config::from_kubeconfig(&kube::config::KubeConfigOptions {
+            context: Some(ctx.clone()),
+            ..Default::default()
+        })
+        .await?
+    } else {
+        kube::Config::infer().await?
+    };
+    Ok(kube::Client::try_from(config)?)
+}
+
+/// Fetch the raw JSON of a single KubeVela Application CR.
+async fn fetch_vela_app_raw(
+    client: &kube::Client,
+    app_name: &str,
+    namespace: &str,
+) -> anyhow::Result<serde_json::Value> {
+    use kube::api::{ApiResource, DynamicObject, ListParams};
+    use kube::Api;
+
+    let ar = ApiResource {
+        group: "core.oam.dev".into(),
+        version: "v1beta1".into(),
+        api_version: "core.oam.dev/v1beta1".into(),
+        kind: "Application".into(),
+        plural: "applications".into(),
+    };
+    let api: Api<DynamicObject> = Api::namespaced_with(client.clone(), namespace, &ar);
+    let lp = ListParams::default().fields(&format!("metadata.name={app_name}"));
+    let list = api.list(&lp).await?;
+    let obj =
+        list.items.into_iter().next().ok_or_else(|| {
+            anyhow::anyhow!("application '{app_name}' not found in '{namespace}'")
+        })?;
+    Ok(serde_json::to_value(obj)?)
+}
+
+/// Run the `vela` binary with `args`, printing stdout/stderr and exiting on failure.
+fn run_vela_bin(args: &[&str]) {
+    let status = std::process::Command::new("vela").args(args).status();
+    match status {
+        Ok(s) if s.success() => {}
+        Ok(s) => {
+            process::exit(s.code().unwrap_or(1));
+        }
+        Err(e) => {
+            eprintln!("error: vela CLI not found or failed to run: {e}");
+            eprintln!("Install with: curl -fsSl https://kubevela.io/install.sh | bash");
+            process::exit(1);
+        }
+    }
 }
 
 // ─── Tracing init ─────────────────────────────────────────────────────────────

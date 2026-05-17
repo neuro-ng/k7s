@@ -13,16 +13,19 @@
 //! Data is loaded asynchronously via `VelaAction` returns; the caller (`App`)
 //! spawns the kube tasks and feeds the results back via `set_*` methods.
 
-use crossterm::event::{KeyCode, KeyEvent};
+use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use ratatui::layout::{Constraint, Rect};
 use ratatui::style::{Color, Modifier, Style};
-use ratatui::widgets::{Block, Borders, Cell, Paragraph, Row, Table, TableState};
+use ratatui::widgets::{
+    Block, Borders, Cell, Paragraph, Row, Scrollbar, ScrollbarOrientation, ScrollbarState, Table,
+    TableState,
+};
 use ratatui::Frame;
 
 use crate::render::vela as rvela;
 use crate::vela::{
-    parse_components, parse_workflow_steps, VelaApplication, VelaComponent, VelaDefinition,
-    VelaRevision, VelaWorkflowStep,
+    parse_components, parse_policies, parse_workflow_steps, VelaApplication, VelaComponent,
+    VelaDefinition, VelaPolicy, VelaRevision, VelaWorkflowStep,
 };
 
 // ─── Sub-view ─────────────────────────────────────────────────────────────────
@@ -34,6 +37,10 @@ enum SubView {
     Workflow,
     Revisions,
     Defs,
+    /// OAM policies for the selected application.
+    Policy,
+    /// Full scrollable YAML pane for a selected definition.
+    DefDetail,
 }
 
 // ─── Actions ──────────────────────────────────────────────────────────────────
@@ -51,6 +58,18 @@ pub enum VelaAction {
     LoadDefs { def_type: String },
     /// Open AI analysis for the selected application.
     AiAnalyse { name: String, namespace: String },
+    /// Show confirm dialog: delete the named application.
+    ConfirmDelete { name: String, namespace: String },
+    /// Show confirm dialog: workflow restart the named application.
+    ConfirmRestart { name: String, namespace: String },
+    /// Show confirm dialog: workflow resume the named application.
+    ConfirmResume { name: String, namespace: String },
+    /// Show confirm dialog: rollback to the selected revision.
+    ConfirmRollback {
+        name: String,
+        namespace: String,
+        revision: Option<u64>,
+    },
     /// No action needed from the caller.
     None,
 }
@@ -82,6 +101,15 @@ pub struct VelaView {
     def_table: TableState,
     def_type_filter: String,
 
+    // ── Policy ────────────────────────────────────────────────────────────────
+    policies: Vec<VelaPolicy>,
+    policy_table: TableState,
+
+    // ── DefDetail (scrollable YAML pane) ──────────────────────────────────────
+    def_detail_lines: Vec<String>,
+    def_detail_title: String,
+    def_detail_scroll: u16,
+
     // ── Context ───────────────────────────────────────────────────────────────
     /// Name of the currently expanded application.
     selected_app_name: String,
@@ -106,6 +134,11 @@ impl VelaView {
             defs: Vec::new(),
             def_table: TableState::default(),
             def_type_filter: "component".to_string(),
+            policies: Vec::new(),
+            policy_table: TableState::default(),
+            def_detail_lines: Vec::new(),
+            def_detail_title: String::new(),
+            def_detail_scroll: 0,
             selected_app_name: String::new(),
             selected_app_ns: String::new(),
             status: None,
@@ -145,6 +178,17 @@ impl VelaView {
         self.status = Some(msg.into());
     }
 
+    /// Load policies for the selected application and switch to Policy sub-view.
+    pub fn set_policies(&mut self, policies: Vec<VelaPolicy>) {
+        self.policies = policies;
+        self.policy_table = TableState::default();
+        if !self.policies.is_empty() {
+            self.policy_table.select(Some(0));
+        }
+        self.sub = SubView::Policy;
+        self.status = None;
+    }
+
     // ── Key dispatch ──────────────────────────────────────────────────────────
 
     pub fn handle_key(&mut self, event: &KeyEvent) -> VelaAction {
@@ -154,6 +198,8 @@ impl VelaView {
             SubView::Workflow => self.handle_workflow_key(event),
             SubView::Revisions => self.handle_revisions_key(event),
             SubView::Defs => self.handle_defs_key(event),
+            SubView::Policy => self.handle_policy_key(event),
+            SubView::DefDetail => self.handle_def_detail_key(event),
         }
     }
 
@@ -232,7 +278,51 @@ impl VelaView {
                 }
             }
 
-            // r / F5 — refresh app list.
+            // p — policies for the selected app.
+            KeyCode::Char('p') => {
+                if let Some(app) = self.selected_app() {
+                    let name = app.name.clone();
+                    let ns = app.namespace.clone();
+                    let raw = app.raw.clone();
+                    let _ = app;
+                    self.selected_app_name = name;
+                    self.selected_app_ns = ns;
+                    let policies = parse_policies(&raw);
+                    self.set_policies(policies);
+                }
+            }
+
+            // D — confirm delete application.
+            KeyCode::Char('D') => {
+                if let Some(app) = self.selected_app() {
+                    return VelaAction::ConfirmDelete {
+                        name: app.name.clone(),
+                        namespace: app.namespace.clone(),
+                    };
+                }
+            }
+
+            // Ctrl+R — confirm workflow restart.
+            KeyCode::Char('r') if event.modifiers.contains(KeyModifiers::CONTROL) => {
+                if let Some(app) = self.selected_app() {
+                    return VelaAction::ConfirmRestart {
+                        name: app.name.clone(),
+                        namespace: app.namespace.clone(),
+                    };
+                }
+            }
+
+            // Ctrl+S — confirm workflow resume.
+            KeyCode::Char('s') if event.modifiers.contains(KeyModifiers::CONTROL) => {
+                if let Some(app) = self.selected_app() {
+                    return VelaAction::ConfirmResume {
+                        name: app.name.clone(),
+                        namespace: app.namespace.clone(),
+                    };
+                }
+            }
+
+            // r / F5 — refresh app list (no Ctrl modifier).
             KeyCode::Char('r') | KeyCode::F(5) => return VelaAction::Refresh,
 
             // A — AI analyse.
@@ -320,6 +410,19 @@ impl VelaView {
                     self.rev_table.select(Some(next));
                 }
             }
+            // r — confirm rollback to selected revision.
+            KeyCode::Char('r') => {
+                let revision = self
+                    .rev_table
+                    .selected()
+                    .and_then(|i| self.revisions.get(i))
+                    .map(|r| r.revision);
+                return VelaAction::ConfirmRollback {
+                    name: self.selected_app_name.clone(),
+                    namespace: self.selected_app_ns.clone(),
+                    revision,
+                };
+            }
             _ => {}
         }
         VelaAction::None
@@ -359,12 +462,88 @@ impl VelaView {
                 return VelaAction::LoadDefs { def_type: t };
             }
 
+            // d — open definition detail (scrollable YAML pane).
+            KeyCode::Char('d') => {
+                if let Some(def) = self.def_table.selected().and_then(|i| self.defs.get(i)) {
+                    let title = format!(" {} — {} ", def.name, def.def_type);
+                    let yaml = serde_yaml::to_string(&def.raw).unwrap_or_else(|_| {
+                        format!(
+                            "name: {}\ntype: {}\ndescription: {}",
+                            def.name, def.def_type, def.description
+                        )
+                    });
+                    self.def_detail_title = title;
+                    self.def_detail_lines = yaml.lines().map(str::to_owned).collect();
+                    self.def_detail_scroll = 0;
+                    self.sub = SubView::DefDetail;
+                }
+            }
+
             // r / F5 — refresh current definition type.
             KeyCode::Char('r') | KeyCode::F(5) => {
                 let t = self.def_type_filter.clone();
                 return VelaAction::LoadDefs { def_type: t };
             }
 
+            _ => {}
+        }
+        VelaAction::None
+    }
+
+    // ── Policy key handler ────────────────────────────────────────────────────
+
+    fn handle_policy_key(&mut self, event: &KeyEvent) -> VelaAction {
+        match event.code {
+            KeyCode::Esc | KeyCode::Char('q') => {
+                self.sub = SubView::Apps;
+            }
+            KeyCode::Up | KeyCode::Char('k') => {
+                let i = self.policy_table.selected().unwrap_or(0);
+                if i > 0 {
+                    self.policy_table.select(Some(i - 1));
+                }
+            }
+            KeyCode::Down | KeyCode::Char('j') => {
+                let cur = self.policy_table.selected().unwrap_or(0);
+                let next = cur + 1;
+                if next < self.policies.len() {
+                    self.policy_table.select(Some(next));
+                }
+            }
+            _ => {}
+        }
+        VelaAction::None
+    }
+
+    // ── DefDetail key handler ─────────────────────────────────────────────────
+
+    fn handle_def_detail_key(&mut self, event: &KeyEvent) -> VelaAction {
+        match event.code {
+            KeyCode::Esc | KeyCode::Char('q') => {
+                self.sub = SubView::Defs;
+            }
+            KeyCode::Up | KeyCode::Char('k') => {
+                self.def_detail_scroll = self.def_detail_scroll.saturating_sub(1);
+            }
+            KeyCode::Down | KeyCode::Char('j') => {
+                let max = self.def_detail_lines.len().saturating_sub(1) as u16;
+                if self.def_detail_scroll < max {
+                    self.def_detail_scroll += 1;
+                }
+            }
+            KeyCode::PageUp => {
+                self.def_detail_scroll = self.def_detail_scroll.saturating_sub(20);
+            }
+            KeyCode::PageDown => {
+                let max = self.def_detail_lines.len().saturating_sub(1) as u16;
+                self.def_detail_scroll = (self.def_detail_scroll + 20).min(max);
+            }
+            KeyCode::Home | KeyCode::Char('g') => {
+                self.def_detail_scroll = 0;
+            }
+            KeyCode::End | KeyCode::Char('G') => {
+                self.def_detail_scroll = self.def_detail_lines.len().saturating_sub(1) as u16;
+            }
             _ => {}
         }
         VelaAction::None
@@ -379,6 +558,8 @@ impl VelaView {
             SubView::Workflow => self.render_workflow(frame, area),
             SubView::Revisions => self.render_revisions(frame, area),
             SubView::Defs => self.render_defs(frame, area),
+            SubView::Policy => self.render_policy(frame, area),
+            SubView::DefDetail => self.render_def_detail(frame, area),
         }
     }
 
@@ -687,6 +868,100 @@ impl VelaView {
         self.render_status(frame, area);
     }
 
+    fn render_policy(&mut self, frame: &mut Frame, area: Rect) {
+        let selected_style = Style::default()
+            .add_modifier(Modifier::BOLD)
+            .bg(Color::DarkGray);
+        let header_style = Style::default()
+            .fg(Color::Yellow)
+            .add_modifier(Modifier::BOLD | Modifier::UNDERLINED);
+
+        let headers = ["NAME", "TYPE", "PROPERTIES"];
+        let header_row =
+            Row::new(headers.iter().map(|h| Cell::from(*h).style(header_style))).height(1);
+
+        let rows: Vec<Row> = self
+            .policies
+            .iter()
+            .map(|p| {
+                let props = if p.properties.is_null() {
+                    "-".to_string()
+                } else {
+                    serde_json::to_string(&p.properties).unwrap_or_else(|_| "-".into())
+                };
+                Row::new(vec![
+                    Cell::from(p.name.clone()),
+                    Cell::from(p.policy_type.clone()),
+                    Cell::from(props),
+                ])
+            })
+            .collect();
+
+        let widths = [
+            Constraint::Percentage(25),
+            Constraint::Percentage(20),
+            Constraint::Percentage(53),
+        ];
+
+        let title = if self.policies.is_empty() {
+            format!(" {} — Policies (none) ", self.selected_app_name)
+        } else {
+            format!(
+                " {} — Policies ({}) ",
+                self.selected_app_name,
+                self.policies.len()
+            )
+        };
+
+        let table = Table::new(rows, widths)
+            .header(header_row)
+            .block(
+                Block::default()
+                    .borders(Borders::ALL)
+                    .title(title)
+                    .title_style(
+                        Style::default()
+                            .fg(Color::Cyan)
+                            .add_modifier(Modifier::BOLD),
+                    ),
+            )
+            .row_highlight_style(selected_style)
+            .highlight_symbol("▶ ");
+
+        frame.render_stateful_widget(table, area, &mut self.policy_table);
+        self.render_status(frame, area);
+    }
+
+    fn render_def_detail(&mut self, frame: &mut Frame, area: Rect) {
+        let total = self.def_detail_lines.len();
+        let content = self.def_detail_lines.join("\n");
+        let scroll = self.def_detail_scroll;
+
+        let block = Block::default()
+            .borders(Borders::ALL)
+            .title(self.def_detail_title.clone())
+            .title_style(
+                Style::default()
+                    .fg(Color::Cyan)
+                    .add_modifier(Modifier::BOLD),
+            );
+
+        let para = Paragraph::new(content)
+            .block(block)
+            .style(Style::default().fg(Color::White))
+            .scroll((scroll, 0));
+
+        frame.render_widget(para, area);
+
+        // Scrollbar on the right edge.
+        if total > area.height as usize {
+            let mut sb_state = ScrollbarState::new(total.saturating_sub(area.height as usize))
+                .position(scroll as usize);
+            let sb = Scrollbar::new(ScrollbarOrientation::VerticalRight);
+            frame.render_stateful_widget(sb, area, &mut sb_state);
+        }
+    }
+
     /// Draw the status line (error / loading message) at the bottom of `area`.
     fn render_status(&self, frame: &mut Frame, area: Rect) {
         if let Some(msg) = &self.status {
@@ -847,6 +1122,7 @@ mod tests {
                 name: "webservice".into(),
                 def_type: "Component".into(),
                 description: "webservice".into(),
+                raw: serde_json::Value::Null,
             }],
             "component",
         );
@@ -911,9 +1187,79 @@ mod tests {
             name: "old".into(),
             def_type: "Component".into(),
             description: "".into(),
+            raw: serde_json::Value::Null,
         }];
         view.enter_defs_mode();
         assert!(view.defs.is_empty());
         assert!(matches!(view.sub, SubView::Defs));
+    }
+
+    #[test]
+    fn p_on_app_opens_policy_view() {
+        let mut view = VelaView::new();
+        view.set_apps(vec![make_app("my-app", "running")]);
+        view.handle_key(&press(KeyCode::Char('p')));
+        assert!(matches!(view.sub, SubView::Policy));
+    }
+
+    #[test]
+    fn d_on_def_opens_def_detail() {
+        let mut view = VelaView::new();
+        view.set_defs(
+            vec![VelaDefinition {
+                name: "webservice".into(),
+                def_type: "Component".into(),
+                description: "web".into(),
+                raw: serde_json::Value::Null,
+            }],
+            "component",
+        );
+        view.handle_key(&press(KeyCode::Char('d')));
+        assert!(matches!(view.sub, SubView::DefDetail));
+    }
+
+    #[test]
+    fn big_d_on_app_returns_confirm_delete() {
+        let mut view = VelaView::new();
+        view.set_apps(vec![make_app("my-app", "running")]);
+        let action = view.handle_key(&press(KeyCode::Char('D')));
+        assert!(matches!(action, VelaAction::ConfirmDelete { .. }));
+    }
+
+    #[test]
+    fn r_in_revisions_returns_confirm_rollback() {
+        let mut view = VelaView::new();
+        view.selected_app_name = "my-app".into();
+        view.selected_app_ns = "default".into();
+        view.set_revisions(vec![VelaRevision {
+            name: "my-app-v2".into(),
+            revision: 2,
+            deploy_time: "2026-05-01".into(),
+            status: "succeeded".into(),
+        }]);
+        let action = view.handle_key(&press(KeyCode::Char('r')));
+        assert!(matches!(
+            action,
+            VelaAction::ConfirmRollback {
+                revision: Some(2),
+                ..
+            }
+        ));
+    }
+
+    #[test]
+    fn esc_in_def_detail_returns_to_defs() {
+        let mut view = VelaView::new();
+        view.sub = SubView::DefDetail;
+        view.handle_key(&press(KeyCode::Esc));
+        assert!(matches!(view.sub, SubView::Defs));
+    }
+
+    #[test]
+    fn esc_in_policy_returns_to_apps() {
+        let mut view = VelaView::new();
+        view.sub = SubView::Policy;
+        view.handle_key(&press(KeyCode::Esc));
+        assert!(matches!(view.sub, SubView::Apps));
     }
 }

@@ -136,10 +136,12 @@ pub async fn list_definitions(client: &kube::Client, def_type: &str) -> Vec<Vela
                 .and_then(|a| a.get("definition.oam.dev/description"))
                 .cloned()
                 .unwrap_or_default();
+            let raw = serde_json::to_value(&obj).unwrap_or_default();
             VelaDefinition {
                 name,
                 def_type: label.into(),
                 description,
+                raw,
             }
         })
         .collect()

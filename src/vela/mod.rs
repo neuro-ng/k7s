@@ -102,6 +102,19 @@ pub struct VelaDefinition {
     pub def_type: String,
     /// Short description from `annotations["definition.oam.dev/description"]`.
     pub description: String,
+    /// Full raw DynamicObject JSON (for detail view).
+    pub raw: serde_json::Value,
+}
+
+// ─── Policy ───────────────────────────────────────────────────────────────────
+
+/// An OAM policy within an Application (`spec.policies[]`).
+#[derive(Debug, Clone)]
+pub struct VelaPolicy {
+    pub name: String,
+    pub policy_type: String,
+    /// JSON properties object (or `Null` if absent).
+    pub properties: serde_json::Value,
 }
 
 // ─── Parser helpers ───────────────────────────────────────────────────────────
@@ -181,6 +194,27 @@ pub fn parse_workflow_steps(raw: &serde_json::Value) -> Vec<VelaWorkflowStep> {
             step_type: str_or(s, "type"),
             phase: str_or(s, "phase"),
             message: str_or(s, "message"),
+        })
+        .collect()
+}
+
+/// Extract `Vec<VelaPolicy>` from a raw Application CR JSON (`spec.policies[]`).
+pub fn parse_policies(raw: &serde_json::Value) -> Vec<VelaPolicy> {
+    let empty = vec![];
+    let policies = raw
+        .pointer("/spec/policies")
+        .and_then(|v| v.as_array())
+        .unwrap_or(&empty);
+
+    policies
+        .iter()
+        .map(|p| VelaPolicy {
+            name: str_or(p, "name"),
+            policy_type: str_or(p, "type"),
+            properties: p
+                .get("properties")
+                .cloned()
+                .unwrap_or(serde_json::Value::Null),
         })
         .collect()
 }
@@ -321,5 +355,30 @@ mod tests {
         let raw = json!({"spec": {}, "status": {}});
         assert!(parse_components(&raw).is_empty());
         assert!(parse_workflow_steps(&raw).is_empty());
+    }
+
+    #[test]
+    fn parse_policies_empty() {
+        let raw = json!({"spec": {}, "status": {}});
+        assert!(parse_policies(&raw).is_empty());
+    }
+
+    #[test]
+    fn parse_policies_extracts_name_and_type() {
+        let raw = json!({
+            "spec": {
+                "policies": [
+                    {"name": "health", "type": "health", "properties": {"probeInterval": 30}},
+                    {"name": "topology", "type": "topology"}
+                ]
+            }
+        });
+        let policies = parse_policies(&raw);
+        assert_eq!(policies.len(), 2);
+        assert_eq!(policies[0].name, "health");
+        assert_eq!(policies[0].policy_type, "health");
+        assert!(!policies[0].properties.is_null());
+        assert_eq!(policies[1].name, "topology");
+        assert!(policies[1].properties.is_null());
     }
 }

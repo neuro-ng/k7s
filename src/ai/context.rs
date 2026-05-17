@@ -191,6 +191,114 @@ async fn enrich_with_pod_logs(
     items.push(meta);
 }
 
+// ─── KubeVela context ─────────────────────────────────────────────────────────
+
+/// Build a sanitized AI context snapshot for a KubeVela Application.
+///
+/// Fetches the Application CR from the cluster, sanitizes it, and appends
+/// synthetic `SafeMetadata` entries for component health and workflow state.
+/// Sensitive property values are dropped; only structural metadata is sent.
+pub async fn build_vela_context(
+    client: &kube::Client,
+    app_name: &str,
+    namespace: &str,
+    sanitizer_cfg: &SanitizerConfig,
+) -> (Vec<SafeMetadata>, ContextScope) {
+    use kube::api::{ApiResource, DynamicObject, ListParams};
+    use kube::Api;
+
+    let scope = ContextScope::new("applications.core.oam.dev", app_name, Some(namespace));
+    let mut items: Vec<SafeMetadata> = Vec::new();
+
+    let ar = ApiResource {
+        group: "core.oam.dev".into(),
+        version: "v1beta1".into(),
+        api_version: "core.oam.dev/v1beta1".into(),
+        kind: "Application".into(),
+        plural: "applications".into(),
+    };
+    let api: Api<DynamicObject> = Api::namespaced_with(client.clone(), namespace, &ar);
+
+    let lp = ListParams::default().fields(&format!("metadata.name={app_name}"));
+    let Ok(list) = api.list(&lp).await else {
+        return (items, scope);
+    };
+
+    let Some(obj) = list.items.into_iter().next() else {
+        return (items, scope);
+    };
+
+    let raw = match serde_json::to_value(&obj) {
+        Ok(v) => v,
+        Err(_) => return (items, scope),
+    };
+
+    // Sanitize the top-level Application resource.
+    let gvr = crate::client::Gvr {
+        group: "core.oam.dev".into(),
+        version: "v1beta1".into(),
+        resource: "applications".into(),
+    };
+    if let Ok(meta) = sanitize(&gvr, Some(namespace), app_name, raw.clone(), sanitizer_cfg) {
+        items.push(meta);
+    }
+
+    // Synthetic SafeMetadata: component health summary (no raw values).
+    let components = crate::vela::parse_components(&raw);
+    if !components.is_empty() {
+        let comp_summary: Vec<serde_json::Value> = components
+            .iter()
+            .map(|c| {
+                json!({
+                    "name": c.name,
+                    "type": c.workload_type,
+                    "healthy": c.healthy,
+                    "message": if c.message.len() > 200 {
+                        format!("{}…", &c.message[..200])
+                    } else {
+                        c.message.clone()
+                    },
+                    "traits": c.traits.iter().map(|t| json!({
+                        "type": t.trait_type,
+                        "healthy": t.healthy
+                    })).collect::<Vec<_>>()
+                })
+            })
+            .collect();
+
+        items.push(SafeMetadata {
+            gvr: "vela-components".into(),
+            name: app_name.to_owned(),
+            namespace: Some(namespace.to_owned()),
+            fields: json!({ "components": comp_summary }),
+        });
+    }
+
+    // Synthetic SafeMetadata: workflow steps (phase only, no sensitive data).
+    let steps = crate::vela::parse_workflow_steps(&raw);
+    if !steps.is_empty() {
+        let step_summary: Vec<serde_json::Value> = steps
+            .iter()
+            .map(|s| {
+                json!({
+                    "name": s.name,
+                    "type": s.step_type,
+                    "phase": s.phase
+                })
+            })
+            .collect();
+
+        items.push(SafeMetadata {
+            gvr: "vela-workflow".into(),
+            name: app_name.to_owned(),
+            namespace: Some(namespace.to_owned()),
+            fields: json!({ "steps": step_summary }),
+        });
+    }
+
+    (items, scope)
+}
+
 // ─── Tests ────────────────────────────────────────────────────────────────────
 
 #[cfg(test)]

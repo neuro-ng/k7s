@@ -172,6 +172,28 @@ enum VelaData {
     Error(String),
 }
 
+/// A confirmed Vela mutating action awaiting subprocess execution — Phase 36.
+#[derive(Debug, Clone)]
+enum PendingVelaAction {
+    Delete {
+        name: String,
+        namespace: String,
+    },
+    Restart {
+        name: String,
+        namespace: String,
+    },
+    Resume {
+        name: String,
+        namespace: String,
+    },
+    Rollback {
+        name: String,
+        namespace: String,
+        revision: Option<u64>,
+    },
+}
+
 /// Result of an async AI call, sent back to the UI loop via mpsc.
 #[derive(Debug)]
 enum AiReply {
@@ -339,6 +361,8 @@ pub struct App {
     /// Channel for background KubeVela data loads.
     vela_data_tx: mpsc::Sender<VelaData>,
     vela_data_rx: mpsc::Receiver<VelaData>,
+    /// Pending confirmed Vela mutating action (delete / restart / resume / rollback).
+    pending_vela_action: Option<PendingVelaAction>,
 
     // ── Cluster Metadata Store (Phase 37) ────────────────────────────────────
     /// Cluster metadata browse view.
@@ -548,6 +572,7 @@ impl App {
             vela_view: crate::view::vela::VelaView::new(),
             vela_data_tx,
             vela_data_rx,
+            pending_vela_action: None,
             meta_view: crate::view::meta::ClusterMetaView::new(),
             meta_data_tx,
             meta_data_rx,
@@ -1954,6 +1979,59 @@ fn handle_key_event(app: &mut App, key: crossterm::event::KeyEvent) {
                     ),
                 );
             }
+            crate::view::VelaAction::ConfirmDelete { name, namespace } => {
+                if vela_missing_hint(app) {
+                    return;
+                }
+                let msg = format!(
+                    "Delete KubeVela application '{name}' in '{namespace}'?\n\
+                     This removes the Application CR and all managed resources."
+                );
+                app.confirm_dialog = Some(ConfirmDialog::new("Delete Application", msg));
+                app.pending_vela_action = Some(PendingVelaAction::Delete { name, namespace });
+                app.mode = Mode::Confirm;
+            }
+            crate::view::VelaAction::ConfirmRestart { name, namespace } => {
+                if vela_missing_hint(app) {
+                    return;
+                }
+                let msg = format!(
+                    "Workflow restart application '{name}' in '{namespace}'?\n\
+                     Running workflow steps will be restarted."
+                );
+                app.confirm_dialog = Some(ConfirmDialog::new("Workflow Restart", msg));
+                app.pending_vela_action = Some(PendingVelaAction::Restart { name, namespace });
+                app.mode = Mode::Confirm;
+            }
+            crate::view::VelaAction::ConfirmResume { name, namespace } => {
+                if vela_missing_hint(app) {
+                    return;
+                }
+                let msg = format!("Resume suspended workflow for '{name}' in '{namespace}'?");
+                app.confirm_dialog = Some(ConfirmDialog::new("Workflow Resume", msg));
+                app.pending_vela_action = Some(PendingVelaAction::Resume { name, namespace });
+                app.mode = Mode::Confirm;
+            }
+            crate::view::VelaAction::ConfirmRollback {
+                name,
+                namespace,
+                revision,
+            } => {
+                if vela_missing_hint(app) {
+                    return;
+                }
+                let rev_label = revision
+                    .map(|r| format!(" to revision {r}"))
+                    .unwrap_or_default();
+                let msg = format!("Rollback application '{name}' in '{namespace}'{rev_label}?");
+                app.confirm_dialog = Some(ConfirmDialog::new("Rollback Application", msg));
+                app.pending_vela_action = Some(PendingVelaAction::Rollback {
+                    name,
+                    namespace,
+                    revision,
+                });
+                app.mode = Mode::Confirm;
+            }
             crate::view::VelaAction::None => {}
         }
         return;
@@ -2144,6 +2222,14 @@ fn handle_key_event(app: &mut App, key: crossterm::event::KeyEvent) {
                         return;
                     }
 
+                    // ── Vela mutating action confirm ──────────────────────────
+                    if let Some(vela_action) = app.pending_vela_action.take() {
+                        app.confirm_dialog = None;
+                        app.mode = Mode::Vela;
+                        execute_vela_subprocess(app, vela_action);
+                        return;
+                    }
+
                     let target = app.pending_delete.take();
                     app.confirm_dialog = None;
                     app.mode = Mode::Browse;
@@ -2189,12 +2275,16 @@ fn handle_key_event(app: &mut App, key: crossterm::event::KeyEvent) {
                 }
                 ConfirmAction::No => {
                     let was_remediation = app.pending_remediation.is_some();
+                    let was_vela = app.pending_vela_action.is_some();
                     app.confirm_dialog = None;
                     app.pending_delete = None;
                     app.pending_foreground_plugin = None;
                     app.pending_remediation = None;
+                    app.pending_vela_action = None;
                     app.mode = if was_remediation {
                         Mode::Expert
+                    } else if was_vela {
+                        Mode::Vela
                     } else {
                         Mode::Browse
                     };
@@ -3069,6 +3159,112 @@ fn execute_remediation(app: &mut App, suggestion: RemediationSuggestion) {
             });
         }
     }
+}
+
+// ─── KubeVela subprocess helpers ──────────────────────────────────────────────
+
+/// Execute a confirmed KubeVela mutating action via the `vela` CLI.
+/// Result is delivered via `op_result_tx`.
+fn execute_vela_subprocess(app: &mut App, action: PendingVelaAction) {
+    let tx = app.op_result_tx.clone();
+    let (args, success_msg): (Vec<String>, String) = match action {
+        PendingVelaAction::Delete { name, namespace } => (
+            vec![
+                "delete".into(),
+                name.clone(),
+                "-n".into(),
+                namespace.clone(),
+                "--yes".into(),
+            ],
+            format!("Deleted application {namespace}/{name}"),
+        ),
+        PendingVelaAction::Restart { name, namespace } => (
+            vec![
+                "workflow".into(),
+                "restart".into(),
+                name.clone(),
+                "-n".into(),
+                namespace.clone(),
+            ],
+            format!("Workflow restart triggered for {name} in {namespace}"),
+        ),
+        PendingVelaAction::Resume { name, namespace } => (
+            vec![
+                "workflow".into(),
+                "resume".into(),
+                name.clone(),
+                "-n".into(),
+                namespace.clone(),
+            ],
+            format!("Workflow resumed for {name} in {namespace}"),
+        ),
+        PendingVelaAction::Rollback {
+            name,
+            namespace,
+            revision,
+        } => {
+            let mut a: Vec<String> = vec![
+                "workflow".into(),
+                "rollback".into(),
+                name.clone(),
+                "-n".into(),
+                namespace.clone(),
+            ];
+            if let Some(rev) = revision {
+                a.push("--revision".into());
+                a.push(rev.to_string());
+            }
+            let msg = format!("Rolled back {name} in {namespace}");
+            (a, msg)
+        }
+    };
+
+    tokio::spawn(async move {
+        let result = tokio::process::Command::new("vela")
+            .args(&args)
+            .output()
+            .await;
+
+        let op = match result {
+            Ok(out) if out.status.success() => OpResult::Ok(success_msg),
+            Ok(out) => OpResult::Err(String::from_utf8_lossy(&out.stderr).trim().to_string()),
+            Err(e) => OpResult::Err(format!("vela: {e}")),
+        };
+        let _ = tx.send(op).await;
+    });
+}
+
+/// Check if the `vela` binary is on PATH.  If not, flash an install hint and
+/// return `true` (caller should skip the action).
+fn vela_missing_hint(app: &mut App) -> bool {
+    let found = std::process::Command::new("which")
+        .arg("vela")
+        .output()
+        .map(|o| o.status.success())
+        .unwrap_or(false);
+    if !found {
+        app.flash(
+            "vela CLI not found — install: curl -fsSl https://kubevela.io/install.sh | bash"
+                .to_owned(),
+            Duration::from_secs(6),
+        );
+        return true;
+    }
+    false
+}
+
+/// Asynchronously check if KubeVela CRDs are installed in the cluster.
+/// If not, flash a CRD hint via `op_result_tx`.
+fn vela_not_installed_hint(client: kube::Client, tx: mpsc::Sender<OpResult>) {
+    tokio::spawn(async move {
+        if !crate::vela::client::is_installed(&client).await {
+            let _ = tx
+                .send(OpResult::Err(
+                    "KubeVela CRDs not found — install with: vela install".to_owned(),
+                ))
+                .await;
+        }
+    });
 }
 
 // ─── Rendering ────────────────────────────────────────────────────────────────
