@@ -13,7 +13,7 @@
 #     k7s:latest
 
 # ── Stage 1: builder ──────────────────────────────────────────────────────────
-FROM rust:1.77-slim-bookworm AS builder
+FROM rust:slim-bookworm AS builder
 
 WORKDIR /build
 

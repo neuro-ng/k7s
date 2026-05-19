@@ -80,11 +80,56 @@ cargo install --path .
 
 ### Docker
 
+Two image variants are published to `ghcr.io/neuro-ng/k7s`:
+
+| Tag | Contents | Use case |
+|-----|----------|----------|
+| `:latest` / `:<version>` | k7s binary only (distroless) | Minimal read-only cluster inspection |
+| `:full` / `:<version>-full` | k7s + kubectl + helm + vela + trivy + gcloud | Full feature set, zero local dependencies |
+
+**Minimal image** (read-only cluster browsing):
+
 ```bash
 docker run --rm -it \
-  -v "$HOME/.kube:/root/.kube:ro" \
-  -v "$HOME/.config/k7s:/root/.config/k7s:ro" \
+  -v "$HOME/.kube:/home/k7s/.kube:ro" \
   ghcr.io/neuro-ng/k7s:latest
+```
+
+**Batteries-included image** (all features):
+
+```bash
+docker run --rm -it \
+  -v "$HOME/.kube:/home/k7s/.kube:ro" \
+  -v "$HOME/.config/k7s:/home/k7s/.config/k7s" \
+  -v "$HOME/.local/state/k7s:/home/k7s/.local/state/k7s" \
+  ghcr.io/neuro-ng/k7s:full
+```
+
+With AWS Bedrock AI provider:
+
+```bash
+docker run --rm -it \
+  -v "$HOME/.kube:/home/k7s/.kube:ro" \
+  -e AWS_ACCESS_KEY_ID \
+  -e AWS_SECRET_ACCESS_KEY \
+  -e AWS_REGION \
+  ghcr.io/neuro-ng/k7s:full
+```
+
+With Google Antigravity ADC:
+
+```bash
+docker run --rm -it \
+  -v "$HOME/.kube:/home/k7s/.kube:ro" \
+  -v "$HOME/.config/gcloud:/home/k7s/.config/gcloud:ro" \
+  -e GOOGLE_APPLICATION_CREDENTIALS=/home/k7s/.config/gcloud/application_default_credentials.json \
+  ghcr.io/neuro-ng/k7s:full
+```
+
+**Docker Compose** (persistent state across sessions):
+
+```bash
+docker compose -f packaging/docker-compose.yml run --rm k7s
 ```
 
 ---

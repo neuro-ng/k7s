@@ -20,10 +20,8 @@
 #     -v "$HOME/.local/state/k7s:/home/k7s/.local/state/k7s" \
 #     ghcr.io/neuro-ng/k7s:full
 
-ARG RUST_VERSION=1.77
-
 # ── Stage 1: builder ──────────────────────────────────────────────────────────
-FROM rust:${RUST_VERSION}-slim-bookworm AS builder
+FROM rust:slim-bookworm AS builder
 
 WORKDIR /build
 
@@ -96,24 +94,27 @@ RUN set -eux; \
     rm helm.tar.gz helm.sha256sum
 
 # ── vela (KubeVela) ──────────────────────────────────────────────────────────
+# Releases use filename pattern: vela-v<VERSION>-linux-<ARCH>.tar.gz
+# Checksums are in a single sha256sums.txt file per release.
+# Tarball layout: linux-<ARCH>/vela (strip one component on extract).
 RUN set -eux; \
     case "${TARGETARCH}" in \
         amd64) ARCH=amd64 ;; \
         arm64) ARCH=arm64 ;; \
         *) echo "unsupported arch: ${TARGETARCH}" && exit 1 ;; \
     esac; \
-    VELA_TAR="vela-linux-${ARCH}.tar.gz"; \
+    VELA_TAR="vela-${VELA_VERSION}-linux-${ARCH}.tar.gz"; \
     curl -fsSL \
         "https://github.com/kubevela/kubevela/releases/download/${VELA_VERSION}/${VELA_TAR}" \
         -o vela.tar.gz; \
     curl -fsSL \
-        "https://github.com/kubevela/kubevela/releases/download/${VELA_VERSION}/${VELA_TAR}.sha256" \
-        -o vela.sha256; \
-    echo "$(cat vela.sha256)  vela.tar.gz" | sha256sum --check; \
-    tar xzf vela.tar.gz vela; \
+        "https://github.com/kubevela/kubevela/releases/download/${VELA_VERSION}/sha256sums.txt" \
+        -o sha256sums.txt; \
+    grep "${VELA_TAR}" sha256sums.txt | sed "s|${VELA_TAR}|vela.tar.gz|" | sha256sum --check; \
+    tar xzf vela.tar.gz --strip-components=1 "linux-${ARCH}/vela"; \
     chmod 0755 vela; \
     mv vela /usr/local/bin/vela; \
-    rm vela.tar.gz vela.sha256
+    rm vela.tar.gz sha256sums.txt
 
 # ── trivy ────────────────────────────────────────────────────────────────────
 RUN set -eux; \
