@@ -32,41 +32,86 @@ any LLM.
 
 ## Installation
 
-### Pre-built Binaries (Recommended)
+### One-line install (Recommended)
 
-Download the archive for your platform from the [GitHub Releases](https://github.com/neuro-ng/k7s/releases) page. Extract the archive and move the `k7s` binary to your `$PATH`.
+Auto-detects your OS and architecture, downloads the correct binary, and installs shell completions:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/neuro-ng/k7s/main/install.sh | sh
+```
+
+Pin a specific version:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/neuro-ng/k7s/main/install.sh | sh -s -- --version v0.1.1
+```
+
+Install to a custom directory:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/neuro-ng/k7s/main/install.sh | sh -s -- --install-dir ~/.local/bin
+```
+
+Preview what the installer will do without downloading anything:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/neuro-ng/k7s/main/install.sh | sh -s -- --dry-run
+```
+
+Supported platforms: **Linux x86\_64**, **Linux arm64**, **macOS Intel**, **macOS Apple Silicon**.
+
+### Manual install
+
+Download the archive for your platform from the [GitHub Releases](https://github.com/neuro-ng/k7s/releases) page, extract it, and move the binary to your `$PATH`.
 
 **Linux (x86_64 musl)**
 ```bash
-VERSION="v0.1.0" # Replace with the latest version
-curl -L "https://github.com/neuro-ng/k7s/releases/download/${VERSION}/k7s-${VERSION}-x86_64-unknown-linux-musl.tar.gz" | tar xz
+VERSION="v0.1.1"
+curl -fsSL "https://github.com/neuro-ng/k7s/releases/download/${VERSION}/k7s-${VERSION}-x86_64-unknown-linux-musl.tar.gz" | tar xz
+sudo mv k7s /usr/local/bin/
+```
+
+**Linux (arm64 musl)**
+```bash
+VERSION="v0.1.1"
+curl -fsSL "https://github.com/neuro-ng/k7s/releases/download/${VERSION}/k7s-${VERSION}-aarch64-unknown-linux-musl.tar.gz" | tar xz
 sudo mv k7s /usr/local/bin/
 ```
 
 **macOS (Apple Silicon)**
 ```bash
-VERSION="v0.1.0" # Replace with the latest version
-curl -L "https://github.com/neuro-ng/k7s/releases/download/${VERSION}/k7s-${VERSION}-aarch64-apple-darwin.tar.gz" | tar xz
+VERSION="v0.1.1"
+curl -fsSL "https://github.com/neuro-ng/k7s/releases/download/${VERSION}/k7s-${VERSION}-aarch64-apple-darwin.tar.gz" | tar xz
+sudo mv k7s /usr/local/bin/
+```
+
+**macOS (Intel)**
+```bash
+VERSION="v0.1.1"
+curl -fsSL "https://github.com/neuro-ng/k7s/releases/download/${VERSION}/k7s-${VERSION}-x86_64-apple-darwin.tar.gz" | tar xz
 sudo mv k7s /usr/local/bin/
 ```
 
 ### Shell Completions
 
-The release archives include a `completions/` directory with shell scripts for `bash`, `zsh`, `fish`, and `PowerShell`. To enable them, copy the appropriate script to your shell's completions directory.
+Each release archive includes a `completions/` directory with scripts for `bash`, `zsh`, `fish`, and PowerShell. The `install.sh` script installs these automatically. For manual installs:
 
 **Zsh:**
 ```bash
-# Example for zsh (using oh-my-zsh)
-mkdir -p ~/.oh-my-zsh/completions
-cp completions/_k7s ~/.oh-my-zsh/completions/
-# Restart your shell or run `source ~/.zshrc`
+mkdir -p ~/.zsh/completions
+cp completions/k7s.zsh ~/.zsh/completions/_k7s
+# Add to ~/.zshrc if not already present:
+# fpath=(~/.zsh/completions $fpath)
 ```
 
 **Bash:**
 ```bash
-# Example for bash
 sudo cp completions/k7s.bash /etc/bash_completion.d/k7s
-# Restart your shell or run `source ~/.bashrc`
+```
+
+**Fish:**
+```bash
+cp completions/k7s.fish ~/.config/fish/completions/k7s.fish
 ```
 
 ### From source
