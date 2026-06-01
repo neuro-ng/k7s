@@ -32,11 +32,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 # Cache dependencies by copying manifests first.
 COPY Cargo.toml Cargo.lock rust-toolchain.toml ./
-RUN mkdir -p src && \
+RUN mkdir -p src benches && \
     echo "fn main() {}" > src/main.rs && \
     echo "" > src/lib.rs && \
+    echo "" > benches/sanitizer.rs && \
     cargo build --release --bin k7s && \
-    rm -rf src
+    rm -rf src benches
 
 # Compile the real binary (only k7s code is recompiled).
 COPY src ./src
@@ -110,7 +111,7 @@ RUN set -eux; \
     curl -fsSL \
         "https://github.com/kubevela/kubevela/releases/download/${VELA_VERSION}/sha256sums.txt" \
         -o sha256sums.txt; \
-    grep "${VELA_TAR}" sha256sums.txt | sed "s|${VELA_TAR}|vela.tar.gz|" | sha256sum --check; \
+    grep "  ${VELA_TAR}$" sha256sums.txt | sed "s|${VELA_TAR}|vela.tar.gz|" | sha256sum --check; \
     tar xzf vela.tar.gz --strip-components=1 "linux-${ARCH}/vela"; \
     chmod 0755 vela; \
     mv vela /usr/local/bin/vela; \
