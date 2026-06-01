@@ -41,6 +41,7 @@ RUN mkdir -p src benches && \
 
 # Compile the real binary (only k7s code is recompiled).
 COPY src ./src
+COPY benches ./benches
 RUN touch src/main.rs && cargo build --release --bin k7s
 
 # ── Stage 2: tools ────────────────────────────────────────────────────────────
@@ -118,6 +119,7 @@ RUN set -eux; \
     rm vela.tar.gz sha256sums.txt
 
 # ── trivy ────────────────────────────────────────────────────────────────────
+# Since ~v0.55 Trivy ships a single checksums.txt instead of per-file .sha256sum.
 RUN set -eux; \
     TRIVY_VER="${TRIVY_VERSION#v}"; \
     case "${TARGETARCH}" in \
@@ -126,18 +128,18 @@ RUN set -eux; \
         *) echo "unsupported arch: ${TARGETARCH}" && exit 1 ;; \
     esac; \
     TRIVY_TAR="trivy_${TRIVY_VER}_${TRIVY_ARCH}.tar.gz"; \
+    TRIVY_CHECKSUMS="trivy_${TRIVY_VER}_checksums.txt"; \
     curl -fsSL \
         "https://github.com/aquasecurity/trivy/releases/download/${TRIVY_VERSION}/${TRIVY_TAR}" \
         -o trivy.tar.gz; \
     curl -fsSL \
-        "https://github.com/aquasecurity/trivy/releases/download/${TRIVY_VERSION}/${TRIVY_TAR}.sha256sum" \
-        -o trivy.sha256sum; \
-    sed -i "s|${TRIVY_TAR}|trivy.tar.gz|g" trivy.sha256sum; \
-    sha256sum --check trivy.sha256sum; \
+        "https://github.com/aquasecurity/trivy/releases/download/${TRIVY_VERSION}/${TRIVY_CHECKSUMS}" \
+        -o checksums.txt; \
+    grep "  ${TRIVY_TAR}$" checksums.txt | sed "s|${TRIVY_TAR}|trivy.tar.gz|" | sha256sum --check; \
     tar xzf trivy.tar.gz trivy; \
     chmod 0755 trivy; \
     mv trivy /usr/local/bin/trivy; \
-    rm trivy.tar.gz trivy.sha256sum
+    rm trivy.tar.gz checksums.txt
 
 # ── Stage 3: runtime ─────────────────────────────────────────────────────────
 FROM debian:bookworm-slim AS runtime

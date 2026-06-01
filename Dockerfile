@@ -37,6 +37,7 @@ RUN mkdir -p src benches && \
 
 # Now copy the real source and rebuild (only k7s code is recompiled).
 COPY src ./src
+COPY benches ./benches
 
 # Touch main.rs to force a rebuild even if mtime is unchanged inside Docker.
 RUN touch src/main.rs && \
