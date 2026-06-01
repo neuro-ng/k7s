@@ -48,10 +48,10 @@ RUN touch src/main.rs && cargo build --release --bin k7s
 FROM debian:bookworm-slim AS tools
 
 ARG TARGETARCH
-ARG KUBECTL_VERSION=v1.30.2
-ARG HELM_VERSION=v3.15.2
-ARG VELA_VERSION=v1.9.7
-ARG TRIVY_VERSION=v0.52.0
+ARG KUBECTL_VERSION=v1.30.14
+ARG HELM_VERSION=v3.21.0
+ARG VELA_VERSION=v1.10.8
+ARG TRIVY_VERSION=v0.70.0
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates \
@@ -144,12 +144,12 @@ RUN set -eux; \
 # ── Stage 3: runtime ─────────────────────────────────────────────────────────
 FROM debian:bookworm-slim AS runtime
 
-ARG GCLOUD_VERSION=481.0.0
+ARG GCLOUD_VERSION=570.0.0
 
 # Minimal runtime packages + gcloud SDK via apt (handles arch automatically,
 # brings Python runtime that gcloud requires, and provides
 # gke-gcloud-auth-plugin for Kubernetes ADC authentication).
-RUN apt-get update && apt-get install -y --no-install-recommends \
+RUN apt-get update && apt-get upgrade -y && apt-get install -y --no-install-recommends \
     ca-certificates \
     curl \
     gnupg \
