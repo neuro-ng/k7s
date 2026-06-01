@@ -28,11 +28,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 COPY Cargo.toml Cargo.lock rust-toolchain.toml ./
 
 # Create a dummy lib and main so `cargo build --release` downloads & compiles deps.
-RUN mkdir -p src && \
+RUN mkdir -p src benches && \
     echo "fn main() {}" > src/main.rs && \
     echo "" > src/lib.rs && \
+    echo "" > benches/sanitizer.rs && \
     cargo build --release --bin k7s && \
-    rm -rf src
+    rm -rf src benches
 
 # Now copy the real source and rebuild (only k7s code is recompiled).
 COPY src ./src
