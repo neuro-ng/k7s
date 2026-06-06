@@ -34,7 +34,7 @@ clap_complete = "4"
 tokio = { version = "1", features = ["full"] }
 
 # TUI framework
-ratatui = "0.29"
+ratatui = "0.30"
 crossterm = { version = "0.28", features = ["event-stream"] }
 
 # Structured logging
@@ -90,7 +90,7 @@ hmac = "0.12"
 tokio-util = { version = "0.7", features = ["rt"] }
 
 # Exponential backoff for retry logic
-backoff = { version = "0.4", features = ["tokio"] }
+backon = { version = "1", features = ["tokio-sleep"] }
 
 # File-system event watching (config live-reload)
 notify = "6"

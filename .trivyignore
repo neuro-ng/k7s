@@ -1,3 +1,15 @@
 # Ignore CVEs in third-party bundled binaries that we cannot upgrade further
 CVE-2025-68121
 CVE-2026-33186
+
+# helm v3.21.0 (latest stable): containerd user ID bypass — fix is in helm v4
+# (breaking major-version change; not appropriate here)
+CVE-2026-46680
+
+# vela v1.10.8 (latest stable): Go stdlib CVEs — fix requires vela 1.11 (alpha)
+CVE-2026-42499
+CVE-2026-39836
+CVE-2026-39826
+CVE-2026-39825
+CVE-2026-39823
+CVE-2026-39820
