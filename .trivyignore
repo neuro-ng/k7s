@@ -13,3 +13,7 @@ CVE-2026-39826
 CVE-2026-39825
 CVE-2026-39823
 CVE-2026-39820
+
+# Go mime header decoding CVE — affects all bundled Go binaries (kubectl, helm,
+# vela, trivy, gcloud); no new stable releases with patched Go available yet
+CVE-2026-42504
