@@ -6,6 +6,10 @@ CVE-2026-33186
 # (breaking major-version change; not appropriate here)
 CVE-2026-46680
 
+# kubectl v1.30.14: golang.org/x/oauth2/jws memory exhaustion — v1.30.x is EOL,
+# no patch release available
+CVE-2025-22868
+
 # vela v1.10.8 (latest stable): Go stdlib and library CVEs accumulated since
 # 2026-03-31; fix requires vela 1.11 which is still alpha as of 2026-06-07
 CVE-2024-25621
