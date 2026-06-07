@@ -681,6 +681,7 @@ fn run_subcommand(
         }
 
         Commands::Version { client, output } => {
+            println!("k7s version: v{}", env!("CARGO_PKG_VERSION"));
             let mut args = vec!["version".to_owned()];
             if client {
                 args.push("--client".into());

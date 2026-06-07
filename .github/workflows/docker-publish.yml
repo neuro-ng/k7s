@@ -175,6 +175,7 @@ jobs:
           severity: CRITICAL
           ignore-unfixed: true
           exit-code: '1'
+          limit-severities-for-sarif: true
           # vela is pinned at latest-stable (v1.10.8); skip to avoid CVE churn
           # while that release accumulates Go-stdlib/library advisories.
           # All CVEs accepted as of 2026-06-07 are listed in .trivyignore.

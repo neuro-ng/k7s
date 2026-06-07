@@ -3,8 +3,8 @@
 # Multi-stage build: builder → tools → runtime
 #
 #   builder   rust:slim  Compiles k7s release binary
-#   tools     debian:bookworm-slim  Downloads + SHA-256 verifies kubectl, helm, vela, trivy
-#   runtime   debian:bookworm-slim  Assembles final image; installs gcloud via apt; non-root user
+#   tools     debian:bookworm-slim  Downloads + SHA-256 verifies kubectl, helm, vela, trivy (trivy stays in build only)
+#   runtime   debian:bookworm-slim  Assembles final image; non-root user
 #
 # Build (single arch):
 #   docker build -t ghcr.io/neuro-ng/k7s:full -f docker/full/Dockerfile .
@@ -144,24 +144,8 @@ RUN set -eux; \
 # ── Stage 3: runtime ─────────────────────────────────────────────────────────
 FROM debian:bookworm-slim AS runtime
 
-ARG GCLOUD_VERSION=570.0.0
-
-# Minimal runtime packages + gcloud SDK via apt (handles arch automatically,
-# brings Python runtime that gcloud requires, and provides
-# gke-gcloud-auth-plugin for Kubernetes ADC authentication).
 RUN apt-get update && apt-get upgrade -y && apt-get install -y --no-install-recommends \
     ca-certificates \
-    curl \
-    gnupg \
-    && curl -fsSL https://packages.cloud.google.com/apt/doc/apt-key.gpg \
-        | gpg --dearmor -o /usr/share/keyrings/cloud.google.gpg \
-    && echo "deb [signed-by=/usr/share/keyrings/cloud.google.gpg] \
-        https://packages.cloud.google.com/apt cloud-sdk main" \
-        > /etc/apt/sources.list.d/google-cloud-sdk.list \
-    && apt-get update && apt-get install -y --no-install-recommends \
-        "google-cloud-cli=${GCLOUD_VERSION}-0" \
-        google-cloud-sdk-gke-gcloud-auth-plugin \
-    && apt-get purge -y --auto-remove gnupg \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy k7s binary from builder.
@@ -171,7 +155,6 @@ COPY --from=builder /build/target/release/k7s /usr/local/bin/k7s
 COPY --from=tools /usr/local/bin/kubectl  /usr/local/bin/kubectl
 COPY --from=tools /usr/local/bin/helm     /usr/local/bin/helm
 COPY --from=tools /usr/local/bin/vela     /usr/local/bin/vela
-COPY --from=tools /usr/local/bin/trivy    /usr/local/bin/trivy
 
 # Create non-root user (UID 65532 matches distroless convention).
 RUN groupadd -g 65532 k7s && \
@@ -191,11 +174,11 @@ LABEL org.opencontainers.image.title="k7s" \
       org.opencontainers.image.version="${VERSION}" \
       org.opencontainers.image.revision="${REVISION}" \
       org.opencontainers.image.created="${BUILD_DATE}" \
-      org.opencontainers.image.licenses="MIT" \
+      org.opencontainers.image.licenses="Apache-2.0" \
       org.opencontainers.image.vendor="neuro-ng"
 
 USER k7s
 ENV HOME=/home/k7s \
-    PATH="/usr/local/bin:/usr/lib/google-cloud-sdk/bin:${PATH}"
+    PATH="/usr/local/bin:${PATH}"
 
 ENTRYPOINT ["/usr/local/bin/k7s"]
