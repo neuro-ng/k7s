@@ -6,14 +6,30 @@ CVE-2026-33186
 # (breaking major-version change; not appropriate here)
 CVE-2026-46680
 
-# vela v1.10.8 (latest stable): Go stdlib CVEs — fix requires vela 1.11 (alpha)
-CVE-2026-42499
-CVE-2026-39836
-CVE-2026-39826
-CVE-2026-39825
-CVE-2026-39823
+# vela v1.10.8 (latest stable): Go stdlib and library CVEs accumulated since
+# 2026-03-31; fix requires vela 1.11 which is still alpha as of 2026-06-07
+CVE-2024-25621
+CVE-2025-15558
+CVE-2025-53547
+CVE-2025-61726
+CVE-2025-61729
+CVE-2026-24051
+CVE-2026-25679
+CVE-2026-32280
+CVE-2026-32281
+CVE-2026-32283
+CVE-2026-32285
+CVE-2026-33811
+CVE-2026-33814
+CVE-2026-34040
+CVE-2026-35469
 CVE-2026-39820
-
-# Go mime header decoding CVE — affects all bundled Go binaries (kubectl, helm,
-# vela, trivy, gcloud); no new stable releases with patched Go available yet
+CVE-2026-39823
+CVE-2026-39825
+CVE-2026-39826
+CVE-2026-39836
+CVE-2026-39883
+CVE-2026-42499
 CVE-2026-42504
+CVE-2026-44973
+CVE-2026-45022
