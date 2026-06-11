@@ -1,14 +1,14 @@
-# k7s Docker publish pipeline — Phase 38.
+# k7s Docker publish pipeline — Phase 39.
 #
 # Builds and pushes two image variants to ghcr.io/neuro-ng/k7s:
 #   :latest / :<version>       — distroless (Dockerfile at repo root)
 #   :full   / :<version>-full  — batteries-included (docker/full/Dockerfile)
 #
 # Triggers:
-#   • Push to main (snapshot images — no version tag)
-#   • Version tags v*.*.* (release images)
+#   • Version tags v*.*.* (release publish)
 #   • workflow_dispatch (manual run)
 #
+# The canonical version comes from Cargo.toml, not the git tag.
 # Both variants are built for linux/amd64 and linux/arm64 via Docker Buildx.
 # The :full image is scanned with Trivy before publishing; CRITICAL CVEs block
 # the push.
@@ -17,7 +17,6 @@ name: Publish Docker Images
 
 on:
   push:
-    branches: [main]
     tags: ['v*.*.*']
   workflow_dispatch:
     inputs:
@@ -46,6 +45,12 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Extract version from Cargo.toml
+        id: version
+        run: |
+          VER=$(awk -F'"' '/^version[[:space:]]*=/{print $2; exit}' Cargo.toml)
+          echo "version=${VER}" >> "$GITHUB_OUTPUT"
+
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
 
@@ -65,10 +70,8 @@ jobs:
         with:
           images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
           tags: |
-            type=ref,event=branch
-            type=semver,pattern={{version}}
-            type=semver,pattern={{major}}.{{minor}}
-            type=raw,value=latest,enable={{is_default_branch}}
+            type=raw,value=latest
+            type=raw,value=${{ steps.version.outputs.version }}
 
       - name: Build and push :latest
         id: build
@@ -85,7 +88,7 @@ jobs:
           provenance: mode=max
           sbom: true
           build-args: |
-            VERSION=${{ github.ref_name }}
+            VERSION=${{ steps.version.outputs.version }}
             REVISION=${{ github.sha }}
             BUILD_DATE=${{ github.event.head_commit.timestamp }}
 
@@ -111,6 +114,12 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Extract version from Cargo.toml
+        id: version
+        run: |
+          VER=$(awk -F'"' '/^version[[:space:]]*=/{print $2; exit}' Cargo.toml)
+          echo "version=${VER}" >> "$GITHUB_OUTPUT"
 
       - name: Load tool versions
         run: |
@@ -142,9 +151,8 @@ jobs:
         with:
           images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
           tags: |
-            type=raw,value=full,enable={{is_default_branch}}
-            type=semver,pattern={{version}}-full
-            type=semver,pattern={{major}}.{{minor}}-full
+            type=raw,value=full
+            type=raw,value=${{ steps.version.outputs.version }}-full
 
       - name: Build :full (load for scanning — amd64 only)
         uses: docker/build-push-action@v6
@@ -162,7 +170,7 @@ jobs:
             VELA_VERSION=${{ env.VELA_VERSION }}
             TRIVY_VERSION=${{ env.TRIVY_VERSION }}
             GCLOUD_VERSION=${{ env.GCLOUD_VERSION }}
-            VERSION=${{ github.ref_name }}
+            VERSION=${{ steps.version.outputs.version }}
             REVISION=${{ github.sha }}
             BUILD_DATE=${{ github.event.head_commit.timestamp }}
 
@@ -208,7 +216,7 @@ jobs:
             VELA_VERSION=${{ env.VELA_VERSION }}
             TRIVY_VERSION=${{ env.TRIVY_VERSION }}
             GCLOUD_VERSION=${{ env.GCLOUD_VERSION }}
-            VERSION=${{ github.ref_name }}
+            VERSION=${{ steps.version.outputs.version }}
             REVISION=${{ github.sha }}
             BUILD_DATE=${{ github.event.head_commit.timestamp }}
 
