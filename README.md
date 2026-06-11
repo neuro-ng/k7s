@@ -3,8 +3,8 @@
 **Performance-focused, security-first Kubernetes TUI with AI-powered cluster analysis.**
 
 k7s is a clean-room Rust reimplementation of the [k9s](https://github.com/derailed/k9s) concept,
-extended with a built-in AI chat window and a sanitizer layer that guarantees secrets never reach
-any LLM.
+extended with a built-in AI chat window, an MCP server for Claude Desktop, and a sanitizer layer
+that guarantees secrets never reach any LLM.
 
 ---
 
@@ -17,13 +17,16 @@ any LLM.
 | **AI Chat (`:chat`)** | Ask questions about your cluster — OpenAI-compatible, Google Antigravity (ADC), AWS Bedrock, Azure OpenAI, or Ollama |
 | **Multi-provider AI** | Five providers: `api` (OpenAI-compatible), `antigravity` (Vertex AI/ADC), `bedrock` (AWS), `azure`, `ollama` (local) |
 | **Chat history (`:chats`)** | Sessions auto-saved to disk; browse and restore any of the last 50 conversations; export to Markdown with `Ctrl+S` / `E` |
+| **MCP server** | `k7s mcp` exposes 10 Kubernetes tools to Claude Desktop and any MCP client — all responses pass through the sanitizer |
 | **Security-first** | Sanitizer layer strips secrets, tokens, and passwords before any data reaches the LLM |
 | **Log analysis** | Smart log compression — 10K lines → ~200 tokens of signal |
 | **Port-forward manager (`:pf`)** | Start, list, and kill `kubectl port-forward` sessions from the TUI |
 | **Expert mode (`:expert`)** | Automated AI scan for pod failures, log spam, and performance issues; one-click remediation playbooks |
 | **Helm manager (`:helm`)** | Browse, inspect, delete, and roll back Helm releases; sanitized values and manifest views |
-| **KubeVela support (`:vela`)** | Inspect OAM Applications, component health trees, workflow steps, revision history, and definitions — no `vela` binary needed for reads |
+| **KubeVela support (`:vela`)** | Inspect OAM Applications, component health trees, workflow steps, revision history, full-status YAML (`d`), and definitions — no `vela` binary needed for reads |
 | **Cluster metadata store (`:meta`)** | Local journal of cluster snapshots, issues, and operator actions; history injected automatically into every AI prompt |
+| **Namespace picker (`:ns`)** | Interactive namespace browser — press Enter to switch the active namespace filter instantly |
+| **Image vulnerability scanning** | `v` on any pod row runs Trivy on the image and shows a CVE report in-TUI |
 | **Animated logo** | Cross-dissolve header logo that cycles through visual styles |
 | **Shell exec** | `kubectl exec -it` into pods without leaving the UI |
 | **Plugins** | Extend with custom shell commands bound to any resource type |
@@ -43,7 +46,7 @@ curl -fsSL https://raw.githubusercontent.com/neuro-ng/k7s/main/install.sh | sh
 Pin a specific version:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/neuro-ng/k7s/main/install.sh | sh -s -- --version v0.1.1
+curl -fsSL https://raw.githubusercontent.com/neuro-ng/k7s/main/install.sh | sh -s -- --version v0.1.3
 ```
 
 Install to a custom directory:
@@ -66,28 +69,28 @@ Download the archive for your platform from the [GitHub Releases](https://github
 
 **Linux (x86_64 musl)**
 ```bash
-VERSION="v0.1.1"
+VERSION="v0.1.3"
 curl -fsSL "https://github.com/neuro-ng/k7s/releases/download/${VERSION}/k7s-${VERSION}-x86_64-unknown-linux-musl.tar.gz" | tar xz
 sudo mv k7s /usr/local/bin/
 ```
 
 **Linux (arm64 musl)**
 ```bash
-VERSION="v0.1.1"
+VERSION="v0.1.3"
 curl -fsSL "https://github.com/neuro-ng/k7s/releases/download/${VERSION}/k7s-${VERSION}-aarch64-unknown-linux-musl.tar.gz" | tar xz
 sudo mv k7s /usr/local/bin/
 ```
 
 **macOS (Apple Silicon)**
 ```bash
-VERSION="v0.1.1"
+VERSION="v0.1.3"
 curl -fsSL "https://github.com/neuro-ng/k7s/releases/download/${VERSION}/k7s-${VERSION}-aarch64-apple-darwin.tar.gz" | tar xz
 sudo mv k7s /usr/local/bin/
 ```
 
 **macOS (Intel)**
 ```bash
-VERSION="v0.1.1"
+VERSION="v0.1.3"
 curl -fsSL "https://github.com/neuro-ng/k7s/releases/download/${VERSION}/k7s-${VERSION}-x86_64-apple-darwin.tar.gz" | tar xz
 sudo mv k7s /usr/local/bin/
 ```
@@ -188,11 +191,14 @@ k7s
 # Connect to a specific context
 k7s --context my-cluster
 
-# Watch a specific namespace
-k7s --namespace kube-system
+# Pre-filter to a namespace
+k7s -n production
 
 # Read-only mode (no mutations)
 k7s --readonly
+
+# Start the MCP server for Claude Desktop
+k7s mcp
 ```
 
 ---
@@ -221,6 +227,7 @@ Type `:` to open the command prompt (Tab-completion included).
 | Command | Description |
 |---------|-------------|
 | `:ctx` | Switch kubeconfig context |
+| `:ns` | Namespace picker — press Enter to switch namespace |
 | `:pulse` | Cluster health dashboard |
 | `:wl` | Aggregated workload overview |
 | `:xray` | Resource dependency tree |
@@ -235,6 +242,7 @@ Type `:` to open the command prompt (Tab-completion included).
 | `:chats` | Browse persisted AI chat sessions |
 | `:alias` | All registered resource aliases |
 | `:dir` | Local filesystem browser |
+| `:vuln` / `:scan` | Image vulnerability report (Trivy) |
 
 ---
 
@@ -242,20 +250,44 @@ Type `:` to open the command prompt (Tab-completion included).
 
 | Key | Action |
 |-----|--------|
-| `d` | Describe selected resource |
-| `y` | View YAML |
+| `d` | Describe selected resource (`kubectl describe`) |
+| `y` | View YAML (`kubectl get -o yaml`) |
 | `l` | Stream logs (pods) |
-| `s` | Shell into pod / Scale workload |
-| `r` | Restart workload |
-| `t` | Trigger CronJob |
-| `f` | Port-forward to selected pod |
+| `e` | Shell into pod (`kubectl exec -it`) |
+| `s` | Scale workload |
+| `i` | Update container image |
+| `r` | Restart workload (rollout restart) |
+| `f` | Port-forward to selected pod/service |
+| `v` | Image vulnerability scan (Trivy) |
+| `a` | Toggle namespace filter (current ↔ all) |
 | `A` | Inject resource into AI chat as context |
-| `c` / `u` | Cordon / Uncordon node |
+| `E` | Export current chat session to Markdown |
+| `c` | Copy resource name to clipboard |
 | `D` | Delete resource (confirm dialog) — kill port-forward in `:pf` |
 | `/` | Filter rows |
-| `Enter` | Drill down (pod → containers, etc.) |
-| `q` | Quit / go back |
+| `Enter` | Drill down (pod → containers; namespace → switch filter) |
+| `[` / `]` | Navigate history back / forward |
+| `-` | Jump to last visited view |
+| `F5` | Refresh current view |
+| `Space` | Open AI chat |
+| `q` / `Esc` | Quit / go back |
 | `?` | Help overlay |
+
+---
+
+## Namespace Picker
+
+Type `:ns` to open the interactive namespace browser, populated from the live cluster API.
+
+- Press **Enter** on any row to instantly switch the active namespace filter.
+- The `ns:<name>` badge in the TUI header reflects the current filter at all times.
+- Press `a` from any browser view to toggle between the filtered namespace and all namespaces.
+- Start k7s with `-n <namespace>` to pre-seed the filter before the first render.
+
+```bash
+k7s -n staging          # open directly in the staging namespace
+k7s -n kube-system      # inspect system workloads
+```
 
 ---
 
@@ -300,10 +332,15 @@ Open `:vela` (alias `:va`) to browse KubeVela Applications. k7s reads all OAM re
 | `Enter` | Component + trait health tree |
 | `w` | Workflow step view |
 | `h` | Revision history |
+| `d` | Full-status YAML pane (scrollable; ↑↓ / PgUp PgDn / g G; Esc to close) |
+| `p` | OAM policy list |
 | `r` | Refresh list |
 | `A` | Inject sanitized app context into AI chat |
+| `Ctrl+R` | Restart workflow (confirm dialog) |
+| `Ctrl+S` | Resume workflow (confirm dialog) |
+| `D` | Delete application (confirm dialog) |
 
-Open `:veladefs` (alias `:vd`) to browse ComponentDefinitions, TraitDefinitions, and WorkflowStepDefinitions. Press `Tab` to cycle definition types.
+Open `:veladefs` (alias `:vd`) to browse ComponentDefinitions, TraitDefinitions, and WorkflowStepDefinitions. Press `Tab` to cycle definition types. Press `d` on a definition to view its full YAML spec.
 
 If KubeVela is not installed on the cluster, k7s shows an actionable hint instead of an error.
 
@@ -335,6 +372,71 @@ k7s meta list   [--days N] [--type snapshot|issue|interaction]
 k7s meta show   <date>
 k7s meta prune  [--before <date>]
 k7s meta export [--output json|markdown]
+```
+
+---
+
+## MCP Server
+
+`k7s mcp` starts a [Model Context Protocol](https://modelcontextprotocol.io) server that exposes
+your cluster to Claude Desktop and any other MCP client — all data passes through the k7s sanitizer
+before leaving the process.
+
+### Quick setup for Claude Desktop
+
+Add this stanza to `~/Library/Application Support/Claude/claude_desktop_config.json` (macOS) or
+`%APPDATA%\Claude\claude_desktop_config.json` (Windows):
+
+```json
+{
+  "mcpServers": {
+    "k7s": {
+      "command": "k7s",
+      "args": ["mcp"],
+      "env": {
+        "KUBECONFIG": "/Users/you/.kube/config"
+      }
+    }
+  }
+}
+```
+
+### Tools exposed
+
+| Tool | Description |
+|------|-------------|
+| `k8s_list_resources` | List pods, deployments, services, nodes, etc. |
+| `k8s_get_pod_logs` | Compressed, deduplicated logs for a pod/container |
+| `k8s_describe_resource` | Describe a resource (sanitized kubectl describe output) |
+| `k8s_get_events` | Events for a namespace or resource |
+| `k8s_cluster_health` | Node conditions, pod phase distribution, degraded workloads |
+| `k8s_get_metrics` | CPU/memory usage from the metrics-server |
+| `k8s_list_namespaces` | List all accessible namespaces |
+| `k8s_get_cluster_history` | Recent issues and operator actions from the metadata journal |
+| `k8s_scale_deployment` | Scale a deployment (requires `--allow-mutations`) |
+| `k8s_rollout_restart` | Rollout-restart a workload (requires `--allow-mutations`) |
+
+### Transports
+
+| Invocation | Transport |
+|-----------|-----------|
+| `k7s mcp` | `stdio` — for Claude Desktop and process-based MCP hosts |
+| `k7s mcp --transport http --port 3000` | HTTP — for remote agents, CI pipelines, multi-client |
+
+### Mutating tools
+
+Read-only tools are always enabled. Scale and rollout-restart are disabled by default:
+
+```bash
+k7s mcp --allow-mutations
+```
+
+Or enable permanently in `config.yaml`:
+
+```yaml
+k7s:
+  mcp:
+    allowMutations: true
 ```
 
 ---
@@ -441,6 +543,7 @@ No API key or cloud account required. Supports any model available in your Ollam
 | Efficiency review | `:chat` → ask about resource sizing |
 | Cluster health | `:chat` → ask about overall health |
 | Automated scan | `:expert` for AI-driven anomaly detection |
+| MCP integration | `k7s mcp` — use Claude Desktop as your cluster AI |
 
 ### Chat history
 
@@ -448,7 +551,7 @@ Sessions are saved automatically to `~/.local/state/k7s/chat_logs/`. The most re
 
 ### Security guarantee
 
-The sanitizer **always** runs before any data reaches the LLM:
+The sanitizer **always** runs before any data reaches the LLM (chat, expert mode, or MCP):
 
 - All `v1/Secret` data fields are stripped
 - Environment variable *values* are stripped (names kept)
@@ -487,6 +590,11 @@ k7s:
       auditLog: true
       customPatterns:
         - "(?i)my-secret-prefix\\s*[:=]\\s*\\S+"
+  mcp:
+    transport: stdio              # stdio (default) or http
+    port: 3000                    # only used with transport: http
+    allowMutations: false         # set true to enable scale/rollout-restart tools
+    resourceRefreshInterval: 30  # seconds between resource subscription updates
   helm:
     enabled: true
     defaultNamespace: ""          # empty = all namespaces

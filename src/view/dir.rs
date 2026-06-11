@@ -122,6 +122,8 @@ impl DirEntry {
 pub enum DirAction {
     /// User pressed Esc / q — close the view.
     Close,
+    /// User pressed Enter on a file — open it in the read-only viewer.
+    OpenFile(std::path::PathBuf),
     /// No action.
     None,
 }
@@ -166,17 +168,23 @@ impl DirView {
         Self::new(cwd)
     }
 
-    /// Navigate into a directory (or do nothing for files).
-    pub fn enter(&mut self) {
+    /// Navigate into a directory or signal that a file should be opened.
+    ///
+    /// Returns `Some(path)` when the user selects a file (caller opens the viewer);
+    /// returns `None` when entering a directory (navigation handled internally).
+    pub fn enter(&mut self) -> Option<std::path::PathBuf> {
         if let Some(sel) = self.table_state.selected() {
             if let Some(entry) = self.entries.get(sel) {
                 if entry.kind == EntryKind::Directory {
                     self.current_path = entry.path.clone();
                     self.load();
+                    return None;
+                } else if entry.kind == EntryKind::File || entry.kind == EntryKind::Symlink {
+                    return Some(entry.path.clone());
                 }
-                // Files: no-op for now (future: open a read-only viewer).
             }
         }
+        None
     }
 
     /// Navigate to the parent directory.
@@ -252,8 +260,11 @@ impl DirView {
         match key.code {
             KeyCode::Esc | KeyCode::Char('q') => DirAction::Close,
             KeyCode::Enter => {
-                self.enter();
-                DirAction::None
+                if let Some(path) = self.enter() {
+                    DirAction::OpenFile(path)
+                } else {
+                    DirAction::None
+                }
             }
             KeyCode::Backspace | KeyCode::Char('[') => {
                 self.go_up();
@@ -496,7 +507,8 @@ mod tests {
         // Ensure the directory entry is selected.
         view.table_state.select(Some(0)); // dirs are first
         let before = view.current_path.clone();
-        view.enter();
+        let result = view.enter();
+        assert!(result.is_none(), "entering a directory should return None");
         assert_ne!(view.current_path, before);
         assert_eq!(view.current_path, child);
     }

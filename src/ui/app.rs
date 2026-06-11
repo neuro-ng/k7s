@@ -113,12 +113,18 @@ enum Mode {
     Metrics,
     /// Helm release manager (`:helm` / `:hr`).
     Helm,
+    /// Helm install dialog is open.
+    HelmInstall,
+    /// Helm upgrade dialog is open.
+    HelmUpgrade,
     /// KubeVela Application Platform view (`:vela` / `:va`).
     Vela,
     /// KubeVela capability definitions view (`:veladefs` / `:vd`).
     VelaDefs,
     /// Cluster Metadata Store view (`:meta` / `:cmeta`).
     Meta,
+    /// Fullscreen `kubectl describe` output viewer.
+    Describe,
 }
 
 /// Outcome of the background cluster connection attempt.
@@ -269,6 +275,10 @@ pub struct App {
     image_dialog: Option<ImageUpdateDialog>,
     /// Pending image-update target: (resource_kind, namespace, name).
     pending_image: Option<(String, String, String)>,
+    /// Active Helm install dialog.
+    helm_install_dialog: Option<crate::ui::dialog::HelmInstallDialog>,
+    /// Active Helm upgrade dialog.
+    helm_upgrade_dialog: Option<crate::ui::dialog::HelmUpgradeDialog>,
     /// Port-forward manager — owns all active kubectl subprocesses.
     pf_manager: crate::portforward::PortForwardManager,
     /// Vulnerability scan result view.
@@ -373,6 +383,19 @@ pub struct App {
     /// Cluster context name used for the metadata store (set on connect).
     meta_context: Option<String>,
 
+    // ── Describe / YAML view (Phase 39) ──────────────────────────────────────
+    /// Scrollable `kubectl describe` / YAML output viewer.
+    describe_view: crate::view::DescribeView,
+    /// Receives `(title, content)` from background kubectl-describe / YAML tasks.
+    describe_ready_rx: mpsc::Receiver<(String, String)>,
+    describe_ready_tx: mpsc::Sender<(String, String)>,
+
+    // ── Shell exec (Phase 39) ─────────────────────────────────────────────────
+    /// When set, the run-loop suspends the TUI and executes this shell session.
+    pending_shell_exec: Option<crate::exec::ShellExec>,
+    /// Namespace of the pod whose logs are currently open (for container switching).
+    log_pod_ns: Option<String>,
+
     // ── Config live-reload ────────────────────────────────────────────────────
     /// Receives `()` whenever the config file changes on disk.
     config_reload_rx: Option<mpsc::Receiver<()>>,
@@ -390,7 +413,7 @@ pub struct App {
 }
 
 impl App {
-    pub fn new(config: Config) -> Self {
+    pub fn new(config: Config, initial_namespace: Option<String>) -> Self {
         let (ai_reply_tx, ai_reply_rx) = mpsc::channel(8);
         let (op_result_tx, op_result_rx) = mpsc::channel(8);
         let (metrics_tx, metrics_rx) = mpsc::channel(4);
@@ -405,6 +428,7 @@ impl App {
         let (context_ready_tx, context_ready_rx) = mpsc::channel(4);
         let (vela_data_tx, vela_data_rx) = mpsc::channel(4);
         let (meta_data_tx, meta_data_rx) = mpsc::channel(4);
+        let (describe_ready_tx, describe_ready_rx) = mpsc::channel(4);
 
         // Build the LLM provider from config if an API key is available.
         let chat_provider = build_provider(&config);
@@ -505,7 +529,7 @@ impl App {
             status_expiry: None,
             browser: None,
             factory: None,
-            namespace: None,
+            namespace: initial_namespace,
             kube_client: None,
             history: NavHistory::new(),
             cmd_history,
@@ -565,6 +589,8 @@ impl App {
             pending_pf: None,
             image_dialog: None,
             pending_image: None,
+            helm_install_dialog: None,
+            helm_upgrade_dialog: None,
             pf_manager: crate::portforward::PortForwardManager::new(),
             img_scan: ImgScanView::new(VulReport::default()),
             dir: DirView::new_cwd(),
@@ -577,6 +603,11 @@ impl App {
             meta_data_tx,
             meta_data_rx,
             meta_context: None,
+            describe_view: crate::view::DescribeView::new("", ""),
+            describe_ready_rx,
+            describe_ready_tx,
+            pending_shell_exec: None,
+            log_pod_ns: None,
             op_result_tx,
             op_result_rx,
             config_reload_rx,
@@ -912,6 +943,7 @@ impl App {
     fn navigate_no_push(&mut self, alias: &str) {
         if let Some(view) = crate::view::browser_for_resource(alias, &self.registry) {
             self.browser = Some(view);
+            self.start_browser_watcher();
         } else {
             self.flash(format!("Unknown resource: {alias}"), Duration::from_secs(3));
         }
@@ -982,6 +1014,19 @@ impl App {
         // Drain pending operation results.
         while let Ok(result) = self.op_result_rx.try_recv() {
             match result {
+                OpResult::Ok(msg) if msg.starts_with("__log_switch__") => {
+                    // Container-switch log payload: "__log_switch__<container>\n<log text>"
+                    if let Some(rest) = msg.strip_prefix("__log_switch__") {
+                        if let Some(nl) = rest.find('\n') {
+                            let container = rest[..nl].to_owned();
+                            let text = &rest[nl + 1..];
+                            for line in text.lines() {
+                                self.log.model.push(line.to_owned(), Some(container.clone()));
+                            }
+                            self.log.scroll_down(usize::MAX);
+                        }
+                    }
+                }
                 OpResult::Ok(msg) => self.flash(msg, Duration::from_secs(3)),
                 OpResult::Err(e) => self.flash(format!("Error: {e}"), Duration::from_secs(5)),
             }
@@ -1064,6 +1109,11 @@ impl App {
         // Drain completed vulnerability scan reports.
         while let Ok(report) = self.vul_report_rx.try_recv() {
             self.img_scan.update(report);
+        }
+
+        // Drain incoming kubectl-describe results.
+        while let Ok((title, content)) = self.describe_ready_rx.try_recv() {
+            self.describe_view = crate::view::DescribeView::new(title, content);
         }
 
         // Drain incoming metrics snapshots.
@@ -1529,18 +1579,18 @@ fn build_provider(config: &Config) -> Option<Arc<dyn Provider>> {
 ///
 /// Initialises the raw-mode terminal, runs the event loop, then restores the
 /// terminal whether the loop exits cleanly or via a panic.
-pub fn run(config: Config) -> anyhow::Result<()> {
+pub fn run(config: Config, initial_namespace: Option<String>) -> anyhow::Result<()> {
     // Run a minimal tokio runtime so the app can drive async watchers later.
     tokio::runtime::Builder::new_multi_thread()
         .enable_all()
         .build()?
-        .block_on(run_async(config))
+        .block_on(run_async(config, initial_namespace))
 }
 
-async fn run_async(config: Config) -> anyhow::Result<()> {
+async fn run_async(config: Config, initial_namespace: Option<String>) -> anyhow::Result<()> {
     let mouse_enabled = config.k7s.ui.enable_mouse;
     let mut terminal = setup_terminal(mouse_enabled)?;
-    let result = run_loop(&mut terminal, config).await;
+    let result = run_loop(&mut terminal, config, initial_namespace).await;
     restore_terminal(&mut terminal, mouse_enabled)?;
     result
 }
@@ -1571,9 +1621,10 @@ fn setup_terminal(enable_mouse: bool) -> io::Result<Terminal<CrosstermBackend<io
 async fn run_loop(
     terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
     config: Config,
+    initial_namespace: Option<String>,
 ) -> anyhow::Result<()> {
     let mouse_enabled = config.k7s.ui.enable_mouse;
-    let mut app = App::new(config);
+    let mut app = App::new(config, initial_namespace);
 
     // Start on the pods view by default.
     app.navigate("pods");
@@ -1636,6 +1687,25 @@ async fn run_loop(
                 Err(e) => app.flash(
                     format!("Plugin '{}' error: {e}", ctx.plugin_name),
                     Duration::from_secs(4),
+                ),
+            }
+        }
+
+        // ── Shell exec (e key on a pod) ────────────────────────────────────────
+        // Same terminal suspend / restore pattern as foreground plugins.
+        if let Some(exec) = app.pending_shell_exec.take() {
+            restore_terminal(terminal, mouse_enabled)?;
+            let result = exec.run();
+            *terminal = setup_terminal(mouse_enabled)?;
+            terminal.clear()?;
+            match result.exit_code {
+                Some(0) | None => app.flash(
+                    format!("Shell exited ({})", exec.pod),
+                    Duration::from_secs(2),
+                ),
+                Some(code) => app.flash(
+                    format!("Shell exited with code {code} ({})", exec.pod),
+                    Duration::from_secs(3),
                 ),
             }
         }
@@ -1755,6 +1825,7 @@ fn handle_mouse_event(app: &mut App, mouse: crossterm::event::MouseEvent) {
             match app.mode {
                 Mode::Log => app.log.scroll_up(3),
                 Mode::Chat => app.chat.scroll_up(1),
+                Mode::Describe => app.describe_view.scroll_up(),
                 _ => {
                     if let Some(b) = &mut app.browser {
                         b.up();
@@ -1767,6 +1838,7 @@ fn handle_mouse_event(app: &mut App, mouse: crossterm::event::MouseEvent) {
         MouseEventKind::ScrollDown => match app.mode {
             Mode::Log => app.log.scroll_down(3),
             Mode::Chat => app.chat.scroll_down(1),
+            Mode::Describe => app.describe_view.scroll_down(),
             _ => {
                 if let Some(b) = &mut app.browser {
                     b.down();
@@ -1854,8 +1926,21 @@ fn handle_key_event(app: &mut App, key: crossterm::event::KeyEvent) {
     // ── Dir view ──────────────────────────────────────────────────────────────
     if app.mode == Mode::Dir {
         let action = app.dir.handle_key(&key);
-        if action == DirAction::Close {
-            app.mode = Mode::Browse;
+        match action {
+            DirAction::Close => app.mode = Mode::Browse,
+            DirAction::OpenFile(path) => {
+                let title = path
+                    .file_name()
+                    .map(|n| n.to_string_lossy().into_owned())
+                    .unwrap_or_else(|| path.display().to_string());
+                let content = match std::fs::read_to_string(&path) {
+                    Ok(s) => s,
+                    Err(e) => format!("Cannot read {}: {e}", path.display()),
+                };
+                app.describe_view = crate::view::DescribeView::new(title, content);
+                app.mode = Mode::Describe;
+            }
+            DirAction::None => {}
         }
         return;
     }
@@ -1897,18 +1982,108 @@ fn handle_key_event(app: &mut App, key: crossterm::event::KeyEvent) {
                 app.mode = Mode::Confirm;
             }
             HelmAction::AiAnalyse { name, namespace } => {
-                let scope_label = format!("helm/{name}  ·  {namespace}");
-                app.chat.set_scope(scope_label);
-                app.mode = Mode::Chat;
-                app.chat.push_message(
-                    Role::System,
-                    format!(
-                        "Helm release context: release '{name}' in namespace '{namespace}'.\n\
-                         Ask questions about this release's status, history, or configuration."
-                    ),
+                let tx = app.context_ready_tx.clone();
+                let name2 = name.clone();
+                let ns2 = namespace.clone();
+                tokio::spawn(async move {
+                    let (metas, scope) =
+                        crate::ai::context::build_helm_context(&name2, &ns2).await;
+                    let _ = tx.send((metas, scope)).await;
+                });
+                app.flash(
+                    format!("Building AI context for helm/{name}…"),
+                    Duration::from_secs(2),
                 );
             }
+            HelmAction::Install { .. } => {
+                app.helm_install_dialog =
+                    Some(crate::ui::dialog::HelmInstallDialog::new("", ""));
+                app.mode = Mode::HelmInstall;
+            }
+            HelmAction::Upgrade { release, chart } => {
+                app.helm_upgrade_dialog =
+                    Some(crate::ui::dialog::HelmUpgradeDialog::new(release, chart));
+                app.mode = Mode::HelmUpgrade;
+            }
             HelmAction::None => {}
+        }
+        return;
+    }
+
+    // ── Helm install dialog ───────────────────────────────────────────────────
+    if app.mode == Mode::HelmInstall {
+        if let Some(dlg) = &mut app.helm_install_dialog {
+            match dlg.handle_key(key.code) {
+                crate::ui::dialog::HelmInstallAction::Confirm {
+                    name,
+                    chart,
+                    namespace,
+                    values_file,
+                    set_args,
+                    dry_run,
+                } => {
+                    app.helm_install_dialog = None;
+                    app.mode = Mode::Helm;
+                    if !helm_missing_hint(app) {
+                        execute_helm_subprocess(
+                            app,
+                            HelmSubcommand::Install {
+                                name,
+                                chart,
+                                namespace,
+                                values_file,
+                                set_args,
+                                dry_run,
+                            },
+                        );
+                    }
+                }
+                crate::ui::dialog::HelmInstallAction::Cancel => {
+                    app.helm_install_dialog = None;
+                    app.mode = Mode::Helm;
+                }
+                crate::ui::dialog::HelmInstallAction::None => {}
+            }
+        }
+        return;
+    }
+
+    // ── Helm upgrade dialog ───────────────────────────────────────────────────
+    if app.mode == Mode::HelmUpgrade {
+        if let Some(dlg) = &mut app.helm_upgrade_dialog {
+            match dlg.handle_key(key.code) {
+                crate::ui::dialog::HelmUpgradeAction::Confirm {
+                    release,
+                    chart,
+                    namespace,
+                    values_file,
+                    set_args,
+                    install_flag,
+                    dry_run,
+                } => {
+                    app.helm_upgrade_dialog = None;
+                    app.mode = Mode::Helm;
+                    if !helm_missing_hint(app) {
+                        execute_helm_subprocess(
+                            app,
+                            HelmSubcommand::Upgrade {
+                                release,
+                                chart,
+                                namespace,
+                                values_file,
+                                set_args,
+                                install_flag,
+                                dry_run,
+                            },
+                        );
+                    }
+                }
+                crate::ui::dialog::HelmUpgradeAction::Cancel => {
+                    app.helm_upgrade_dialog = None;
+                    app.mode = Mode::Helm;
+                }
+                crate::ui::dialog::HelmUpgradeAction::None => {}
+            }
         }
         return;
     }
@@ -2103,17 +2278,74 @@ fn handle_key_event(app: &mut App, key: crossterm::event::KeyEvent) {
         return;
     }
 
+    // ── Describe view ────────────────────────────────────────────────────────
+    if app.mode == Mode::Describe {
+        use crossterm::event::KeyCode;
+        match key.code {
+            KeyCode::Esc | KeyCode::Char('q') => app.mode = Mode::Browse,
+            KeyCode::Up | KeyCode::Char('k') => app.describe_view.scroll_up(),
+            KeyCode::Down | KeyCode::Char('j') => app.describe_view.scroll_down(),
+            KeyCode::PageUp | KeyCode::Char('u') => app.describe_view.page_up(20),
+            KeyCode::PageDown | KeyCode::Char('d') => app.describe_view.page_down(20),
+            KeyCode::Home | KeyCode::Char('g') => app.describe_view.top(),
+            KeyCode::End | KeyCode::Char('G') => app.describe_view.bottom(),
+            _ => {}
+        }
+        return;
+    }
+
     // ── Log view ─────────────────────────────────────────────────────────────
     if app.mode == Mode::Log {
         let action = app.log.handle_key(key);
         match action {
             LogAction::Close => app.mode = Mode::Browse,
-            LogAction::SwitchContainer(name) => {
-                app.flash(
-                    format!("Switching to container: {name}"),
-                    Duration::from_secs(2),
-                );
-                // Future: re-stream logs for `name` when cluster is connected.
+            LogAction::SwitchContainer(container) => {
+                if let (Some(client), Some(ns)) =
+                    (app.kube_client.clone(), app.log_pod_ns.clone())
+                {
+                    let pod = app.log.pod_name.clone();
+                    let tail = app.config.k7s.logger.tail as i64;
+                    app.log.model.clear();
+                    app.flash(
+                        format!("Loading logs for container {container}…"),
+                        Duration::from_secs(2),
+                    );
+                    // Fetch logs for the newly selected container.
+                    let op_tx = app.op_result_tx.clone();
+                    let container2 = container.clone();
+                    tokio::spawn(async move {
+                        use k8s_openapi::api::core::v1::Pod;
+                        use kube::api::LogParams;
+                        use kube::Api;
+                        let api: Api<Pod> = Api::namespaced(client, &ns);
+                        let params = LogParams {
+                            container: Some(container2.clone()),
+                            tail_lines: Some(tail),
+                            ..Default::default()
+                        };
+                        match api.logs(&pod, &params).await {
+                            Ok(text) => {
+                                let _ = op_tx
+                                    .send(OpResult::Ok(format!(
+                                        "__log_switch__{container2}\n{text}"
+                                    )))
+                                    .await;
+                            }
+                            Err(e) => {
+                                let _ = op_tx
+                                    .send(OpResult::Err(format!(
+                                        "Logs for {container2}: {e}"
+                                    )))
+                                    .await;
+                            }
+                        }
+                    });
+                } else {
+                    app.flash(
+                        "No cluster connection — cannot switch container logs".to_owned(),
+                        Duration::from_secs(3),
+                    );
+                }
             }
             LogAction::None => {}
         }
@@ -2239,6 +2471,32 @@ fn handle_key_event(app: &mut App, key: crossterm::event::KeyEvent) {
                             // pending_foreground_plugin holds the real data.
                             if let Some((plugin, ctx)) = app.pending_foreground_plugin.take() {
                                 run_plugin(app, &plugin, &ctx);
+                            }
+                        // ── Helm uninstall ────────────────────────────────────
+                        } else if resource == "helm_release" {
+                            let ns2 = ns.clone().unwrap_or_default();
+                            if !helm_missing_hint(app) {
+                                execute_helm_subprocess(
+                                    app,
+                                    HelmSubcommand::Uninstall {
+                                        name: name.clone(),
+                                        namespace: ns2,
+                                    },
+                                );
+                            }
+                        // ── Helm rollback ─────────────────────────────────────
+                        } else if let Some(rev_str) = resource.strip_prefix("helm_rollback:") {
+                            let revision: u64 = rev_str.parse().unwrap_or(0);
+                            let ns2 = ns.clone().unwrap_or_default();
+                            if !helm_missing_hint(app) {
+                                execute_helm_subprocess(
+                                    app,
+                                    HelmSubcommand::Rollback {
+                                        name: name.clone(),
+                                        namespace: ns2,
+                                        revision,
+                                    },
+                                );
                             }
                         } else if let Some(client) = app.kube_client.clone() {
                             let tx = app.op_result_tx.clone();
@@ -2546,15 +2804,29 @@ fn handle_key_event(app: &mut App, key: crossterm::event::KeyEvent) {
             }
         }
         Action::Enter => {
-            // Drill into sub-resource: Enter on a pod row opens the container view.
             use crate::client::gvr::well_known;
             if let Some(browser) = &app.browser {
                 let is_pods = browser.resource_gvr.as_ref() == Some(&well_known::pods());
+                let is_namespaces =
+                    browser.resource_gvr.as_ref() == Some(&well_known::namespaces());
+
                 if is_pods {
+                    // Drill into sub-resource: Enter on a pod row opens the container view.
                     if let Some(pod_value) = browser.selected_value() {
                         let container_view = crate::view::container_browser(&pod_value);
                         app.history.push("containers");
                         app.browser = Some(container_view);
+                    }
+                } else if is_namespaces {
+                    // Enter on a namespace row switches the active namespace filter.
+                    if let Some(name) = browser.selected_name() {
+                        app.namespace = Some(name.clone());
+                        app.flash(
+                            format!("Namespace: {name}"),
+                            Duration::from_secs(2),
+                        );
+                        app.navigate("pods");
+                        app.start_browser_watcher();
                     }
                 }
             }
@@ -2582,6 +2854,11 @@ fn handle_key_event(app: &mut App, key: crossterm::event::KeyEvent) {
                             .and_then(|v| v.as_str())
                             .unwrap_or("pod")
                             .to_owned();
+                        let pod_ns = browser
+                            .selected_namespace()
+                            .or_else(|| app.namespace.clone())
+                            .unwrap_or_else(|| "default".to_owned());
+                        app.log_pod_ns = Some(pod_ns);
                         app.log = LogView::new(pod_name, containers);
                         app.mode = Mode::Log;
                     } else {
@@ -2599,11 +2876,48 @@ fn handle_key_event(app: &mut App, key: crossterm::event::KeyEvent) {
             }
         }
         Action::Describe => {
-            if let Some(name) = app.browser.as_ref().and_then(|b| b.selected_name()) {
-                app.flash(
-                    format!("Describe: {name} (Phase 6)"),
-                    Duration::from_secs(3),
-                );
+            if let Some(browser) = &app.browser {
+                if let Some(name) = browser.selected_name() {
+                    let ns = browser
+                        .selected_namespace()
+                        .or_else(|| app.namespace.clone());
+                    let resource = browser
+                        .resource_gvr
+                        .as_ref()
+                        .map(|g| g.resource.clone())
+                        .unwrap_or_else(|| browser.title.to_lowercase());
+                    let title = format!("{}/{name}", resource.trim_end_matches('s'));
+                    let flash_name = name.clone();
+                    let tx = app.describe_ready_tx.clone();
+                    tokio::spawn(async move {
+                        let mut cmd = tokio::process::Command::new("kubectl");
+                        cmd.args(["describe", &resource, &name]);
+                        if let Some(ref n) = ns {
+                            cmd.args(["-n", n]);
+                        }
+                        let output = cmd
+                            .stdout(std::process::Stdio::piped())
+                            .stderr(std::process::Stdio::piped())
+                            .output()
+                            .await;
+                        let content = match output {
+                            Ok(o) if o.status.success() => {
+                                String::from_utf8_lossy(&o.stdout).into_owned()
+                            }
+                            Ok(o) => {
+                                let err = String::from_utf8_lossy(&o.stderr).into_owned();
+                                format!("kubectl describe failed:\n{err}")
+                            }
+                            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+                                "kubectl not found — install kubectl to use describe".to_owned()
+                            }
+                            Err(e) => format!("failed to run kubectl: {e}"),
+                        };
+                        let _ = tx.send((title, content)).await;
+                    });
+                    app.flash(format!("Loading describe for {flash_name}…"), Duration::from_secs(2));
+                    app.mode = Mode::Describe;
+                }
             }
         }
         Action::Delete => {
@@ -2795,6 +3109,126 @@ fn handle_key_event(app: &mut App, key: crossterm::event::KeyEvent) {
                 );
             }
         }
+        // ── Back / Esc ────────────────────────────────────────────────────────
+        Action::Back => {
+            let alias = app.history.back().map(|s| s.to_owned());
+            if let Some(a) = alias {
+                app.navigate_no_push(&a);
+            }
+            // If nothing in history, stay on current view (Esc already handled per-mode above).
+        }
+
+        // ── YAML view (y) ────────────────────────────────────────────────────
+        Action::ViewYaml => {
+            if let Some(browser) = &app.browser {
+                if let Some(name) = browser.selected_name() {
+                    let ns = browser
+                        .selected_namespace()
+                        .or_else(|| app.namespace.clone());
+                    let resource = browser
+                        .resource_gvr
+                        .as_ref()
+                        .map(|g| g.resource.clone())
+                        .unwrap_or_else(|| browser.title.to_lowercase());
+                    let title = format!("{}/{name} (YAML)", resource.trim_end_matches('s'));
+                    let flash_name = name.clone();
+                    let tx = app.describe_ready_tx.clone();
+                    tokio::spawn(async move {
+                        let mut cmd = tokio::process::Command::new("kubectl");
+                        cmd.args(["get", &resource, &name, "-o", "yaml"]);
+                        if let Some(ref n) = ns {
+                            cmd.args(["-n", n]);
+                        }
+                        let output = cmd
+                            .stdout(std::process::Stdio::piped())
+                            .stderr(std::process::Stdio::piped())
+                            .output()
+                            .await;
+                        let content = match output {
+                            Ok(o) if o.status.success() => {
+                                String::from_utf8_lossy(&o.stdout).into_owned()
+                            }
+                            Ok(o) => {
+                                let err = String::from_utf8_lossy(&o.stderr).into_owned();
+                                format!("kubectl get -o yaml failed:\n{err}")
+                            }
+                            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+                                "kubectl not found — install kubectl to view YAML".to_owned()
+                            }
+                            Err(e) => format!("failed to run kubectl: {e}"),
+                        };
+                        let _ = tx.send((title, content)).await;
+                    });
+                    app.flash(format!("Loading YAML for {flash_name}…"), Duration::from_secs(2));
+                    app.mode = Mode::Describe;
+                }
+            }
+        }
+
+        // ── Copy name to clipboard (c) ────────────────────────────────────────
+        Action::Copy => {
+            if let Some(name) = app.browser.as_ref().and_then(|b| b.selected_name()) {
+                match crate::util::clipboard::copy(&name) {
+                    Ok(backend) => app.flash(
+                        format!("Copied \"{name}\" to clipboard ({backend})"),
+                        Duration::from_secs(2),
+                    ),
+                    Err(_) => app.flash(
+                        format!("Copied \"{name}\" (no clipboard backend — install xclip/wl-copy)"),
+                        Duration::from_secs(3),
+                    ),
+                }
+            }
+        }
+
+        // ── Refresh (F5) ─────────────────────────────────────────────────────
+        Action::Refresh => {
+            if app.browser.is_some() {
+                app.start_browser_watcher();
+                app.flash("Refreshing…".to_owned(), Duration::from_secs(1));
+            }
+        }
+
+        // ── Toggle all namespaces (a) ─────────────────────────────────────────
+        Action::ToggleAllNamespaces => {
+            if app.namespace.is_some() {
+                app.namespace = None;
+                app.flash("Namespace: (all)".to_owned(), Duration::from_secs(2));
+            } else {
+                // Default back to the namespace of the selected row, or "default".
+                let ns = app
+                    .browser
+                    .as_ref()
+                    .and_then(|b| b.selected_namespace())
+                    .unwrap_or_else(|| "default".to_owned());
+                app.namespace = Some(ns.clone());
+                app.flash(format!("Namespace: {ns}"), Duration::from_secs(2));
+            }
+            app.start_browser_watcher();
+        }
+
+        // ── Shell into pod (e) ────────────────────────────────────────────────
+        Action::Shell => {
+            if let Some(browser) = &app.browser {
+                use crate::client::gvr::well_known;
+                let is_pods = browser.resource_gvr.as_ref() == Some(&well_known::pods());
+                if is_pods {
+                    if let Some(name) = browser.selected_name() {
+                        let ns = browser
+                            .selected_namespace()
+                            .or_else(|| app.namespace.clone())
+                            .unwrap_or_else(|| "default".to_owned());
+                        app.pending_shell_exec =
+                            Some(crate::exec::ShellExec::new(name, ns));
+                    } else {
+                        app.flash("Select a pod to open a shell".to_owned(), Duration::from_secs(2));
+                    }
+                } else {
+                    app.flash("Shell only available for pods".to_owned(), Duration::from_secs(2));
+                }
+            }
+        }
+
         Action::Restart => {
             if let Some(browser) = &app.browser {
                 if let Some(name) = browser.selected_name() {
@@ -2832,6 +3266,13 @@ fn handle_key_event(app: &mut App, key: crossterm::event::KeyEvent) {
                 }
             }
         }
+        Action::SortColumn => {
+            // Sort by the first column (name) as a sensible default toggle.
+            if let Some(b) = &mut app.browser {
+                b.table.sort_by_column(0);
+            }
+        }
+
         Action::Unhandled(crossterm::event::KeyCode::Char('X')) => {
             // Toggle expert mode (Phase 21).
             if app.expert_enabled && app.mode == Mode::Expert {
@@ -3253,6 +3694,95 @@ fn vela_missing_hint(app: &mut App) -> bool {
     false
 }
 
+// ─── Helm helpers ──────────────────────────────────────────────────────────────
+
+/// Discriminator for `execute_helm_subprocess`.
+enum HelmSubcommand {
+    Uninstall { name: String, namespace: String },
+    Rollback { name: String, namespace: String, revision: u64 },
+    Install { name: String, chart: String, namespace: String, values_file: Option<String>, set_args: Vec<String>, dry_run: bool },
+    Upgrade { release: String, chart: String, namespace: String, values_file: Option<String>, set_args: Vec<String>, install_flag: bool, dry_run: bool },
+}
+
+/// Run a `helm` subprocess in a background task; flash the result via `op_result_tx`.
+fn execute_helm_subprocess(app: &mut App, cmd: HelmSubcommand) {
+    let tx = app.op_result_tx.clone();
+    let (args, success_msg): (Vec<String>, String) = match cmd {
+        HelmSubcommand::Uninstall { name, namespace } => (
+            vec!["uninstall".into(), name.clone(), "-n".into(), namespace.clone()],
+            format!("Helm release {namespace}/{name} uninstalled"),
+        ),
+        HelmSubcommand::Rollback { name, namespace, revision } => {
+            let mut a = vec!["rollback".into(), name.clone()];
+            if revision > 0 {
+                a.push(revision.to_string());
+            }
+            a.extend(["-n".into(), namespace.clone()]);
+            (a, format!("Rolled back {name} in {namespace}"))
+        }
+        HelmSubcommand::Install { name, chart, namespace, values_file, set_args, dry_run } => {
+            let mut a = vec!["install".into(), name.clone(), chart.clone(), "-n".into(), namespace.clone()];
+            if let Some(f) = values_file {
+                a.extend(["-f".into(), f]);
+            }
+            for s in set_args {
+                a.extend(["--set".into(), s]);
+            }
+            if dry_run {
+                a.push("--dry-run".into());
+            }
+            (a, format!("Installed {name} from {chart}"))
+        }
+        HelmSubcommand::Upgrade { release, chart, namespace, values_file, set_args, install_flag, dry_run } => {
+            let mut a = vec!["upgrade".into(), release.clone(), chart.clone(), "-n".into(), namespace.clone()];
+            if let Some(f) = values_file {
+                a.extend(["-f".into(), f]);
+            }
+            for s in set_args {
+                a.extend(["--set".into(), s]);
+            }
+            if install_flag {
+                a.push("--install".into());
+            }
+            if dry_run {
+                a.push("--dry-run".into());
+            }
+            (a, format!("Upgraded {release} in {namespace}"))
+        }
+    };
+
+    tokio::spawn(async move {
+        let result = tokio::process::Command::new("helm")
+            .args(&args)
+            .output()
+            .await;
+        let op = match result {
+            Ok(out) if out.status.success() => OpResult::Ok(success_msg),
+            Ok(out) => OpResult::Err(String::from_utf8_lossy(&out.stderr).trim().to_string()),
+            Err(e) => OpResult::Err(format!("helm: {e}")),
+        };
+        let _ = tx.send(op).await;
+    });
+}
+
+/// Check if the `helm` binary is on PATH.  If not, flash an install hint and
+/// return `true` (caller should skip the action).
+fn helm_missing_hint(app: &mut App) -> bool {
+    let found = std::process::Command::new("which")
+        .arg("helm")
+        .output()
+        .map(|o| o.status.success())
+        .unwrap_or(false);
+    if !found {
+        app.flash(
+            "helm CLI not found — install: https://helm.sh/docs/intro/install/".to_owned(),
+            Duration::from_secs(6),
+        );
+        return true;
+    }
+    false
+}
+
 /// Asynchronously check if KubeVela CRDs are installed in the cluster.
 /// If not, flash a CRD hint via `op_result_tx`.
 fn vela_not_installed_hint(client: kube::Client, tx: mpsc::Sender<OpResult>) {
@@ -3311,6 +3841,16 @@ fn render(frame: &mut Frame, app: &mut App) {
             dlg.render(frame, area);
         }
     }
+    if app.mode == Mode::HelmInstall {
+        if let Some(dlg) = &app.helm_install_dialog {
+            dlg.render(frame, area);
+        }
+    }
+    if app.mode == Mode::HelmUpgrade {
+        if let Some(dlg) = &app.helm_upgrade_dialog {
+            dlg.render(frame, area);
+        }
+    }
 }
 
 fn render_header(frame: &mut Frame, app: &App, area: Rect) {
@@ -3361,9 +3901,12 @@ fn render_header(frame: &mut Frame, app: &App, area: Rect) {
         Mode::Dir => "  [dir]",
         Mode::Metrics => "  [metrics]",
         Mode::Helm => "  [helm]",
+        Mode::HelmInstall => "  [helm-install]",
+        Mode::HelmUpgrade => "  [helm-upgrade]",
         Mode::Vela => "  [vela]",
         Mode::VelaDefs => "  [veladefs]",
         Mode::Meta => "  [meta]",
+        Mode::Describe => "  [describe]",
         Mode::Browse => "",
     };
 
@@ -3502,6 +4045,9 @@ fn render_main(frame: &mut Frame, app: &mut App, area: Rect) {
         Mode::Meta => {
             app.meta_view.render(frame, area);
         }
+        Mode::Describe => {
+            app.describe_view.render(frame, area);
+        }
         Mode::Metrics => {
             let ctx = match &app.connection {
                 ConnectionState::Connected { context, .. } => context.as_str(),
@@ -3592,6 +4138,15 @@ fn render_footer(frame: &mut Frame, app: &App, area: Rect) {
                 "  ↑↓/jk navigate  Enter detail  f filter  c inject to chat  p prune  r refresh  q close",
             )
             .style(Style::default().fg(Color::DarkGray)),
+            area,
+        );
+        return;
+    }
+
+    if app.mode == Mode::Describe {
+        frame.render_widget(
+            Paragraph::new("  ↑↓/jk scroll  PgUp/u page up  PgDn/d page down  g top  G bottom  q/Esc close")
+                .style(Style::default().fg(Color::DarkGray)),
             area,
         );
         return;
@@ -3711,13 +4266,13 @@ mod tests {
 
     #[test]
     fn app_starts_not_quitting() {
-        let app = App::new(Config::default());
+        let app = App::new(Config::default(), None);
         assert!(!app.should_quit());
     }
 
     #[test]
     fn app_quits_after_quit_call() {
-        let mut app = App::new(Config::default());
+        let mut app = App::new(Config::default(), None);
         app.quit();
         assert!(app.should_quit());
     }
@@ -3725,7 +4280,7 @@ mod tests {
     #[test]
     fn q_key_triggers_quit() {
         use crossterm::event::{KeyCode, KeyEvent, KeyEventKind, KeyEventState, KeyModifiers};
-        let mut app = App::new(Config::default());
+        let mut app = App::new(Config::default(), None);
         let key = KeyEvent {
             code: KeyCode::Char('q'),
             modifiers: KeyModifiers::NONE,
@@ -3739,7 +4294,7 @@ mod tests {
     #[test]
     fn colon_opens_command_mode() {
         use crossterm::event::{KeyCode, KeyEvent, KeyEventKind, KeyEventState, KeyModifiers};
-        let mut app = App::new(Config::default());
+        let mut app = App::new(Config::default(), None);
         handle_key_event(
             &mut app,
             KeyEvent {
@@ -3754,7 +4309,7 @@ mod tests {
 
     #[test]
     fn navigate_pods_creates_browser() {
-        let mut app = App::new(Config::default());
+        let mut app = App::new(Config::default(), None);
         app.navigate("pods");
         assert!(app.browser.is_some());
         assert_eq!(app.browser.as_ref().unwrap().title, "Pods");
@@ -3762,14 +4317,14 @@ mod tests {
 
     #[test]
     fn navigate_unknown_alias_sets_status() {
-        let mut app = App::new(Config::default());
+        let mut app = App::new(Config::default(), None);
         app.navigate("doesnotexist");
         assert!(app.status.is_some());
     }
 
     #[test]
     fn navigate_pushes_to_history() {
-        let mut app = App::new(Config::default());
+        let mut app = App::new(Config::default(), None);
         app.navigate("pods");
         app.navigate("nodes");
         assert!(app.history.can_go_back());
@@ -3778,7 +4333,7 @@ mod tests {
     #[test]
     fn history_back_navigates() {
         use crossterm::event::{KeyCode, KeyEvent, KeyEventKind, KeyEventState, KeyModifiers};
-        let mut app = App::new(Config::default());
+        let mut app = App::new(Config::default(), None);
         app.navigate("pods");
         app.navigate("nodes");
         // Press [ to go back.
@@ -3798,7 +4353,7 @@ mod tests {
     #[test]
     fn question_mark_opens_help() {
         use crossterm::event::{KeyCode, KeyEvent, KeyEventKind, KeyEventState, KeyModifiers};
-        let mut app = App::new(Config::default());
+        let mut app = App::new(Config::default(), None);
         handle_key_event(
             &mut app,
             KeyEvent {
@@ -3814,7 +4369,7 @@ mod tests {
     #[test]
     fn esc_in_help_returns_to_browse() {
         use crossterm::event::{KeyCode, KeyEvent, KeyEventKind, KeyEventState, KeyModifiers};
-        let mut app = App::new(Config::default());
+        let mut app = App::new(Config::default(), None);
         app.mode = Mode::Help;
         handle_key_event(
             &mut app,
@@ -3831,7 +4386,7 @@ mod tests {
     #[test]
     fn space_opens_chat_mode() {
         use crossterm::event::{KeyCode, KeyEvent, KeyEventKind, KeyEventState, KeyModifiers};
-        let mut app = App::new(Config::default());
+        let mut app = App::new(Config::default(), None);
         handle_key_event(
             &mut app,
             KeyEvent {
@@ -3847,7 +4402,7 @@ mod tests {
     #[test]
     fn esc_in_chat_returns_to_browse() {
         use crossterm::event::{KeyCode, KeyEvent, KeyEventKind, KeyEventState, KeyModifiers};
-        let mut app = App::new(Config::default());
+        let mut app = App::new(Config::default(), None);
         app.mode = Mode::Chat;
         handle_key_event(
             &mut app,
@@ -3863,7 +4418,7 @@ mod tests {
 
     #[test]
     fn chat_session_is_created_on_startup() {
-        let app = App::new(Config::default());
+        let app = App::new(Config::default(), None);
         assert!(app.chat_session.is_some());
     }
 

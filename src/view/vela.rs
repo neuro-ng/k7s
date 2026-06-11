@@ -8,6 +8,7 @@
 //! | `Components` | `Enter` on app | OAM components + trait health            |
 //! | `Workflow` | `w` on app      | Workflow step phases                     |
 //! | `Revisions`| `h` on app      | ApplicationRevision history              |
+//! | `AppDetail`| `d` on app      | Scrollable full-status YAML for the app  |
 //! | `Defs`     | `:veladefs`/`:vd` | Capability definitions (component/trait) |
 //!
 //! Data is loaded asynchronously via `VelaAction` returns; the caller (`App`)
@@ -41,6 +42,8 @@ enum SubView {
     Policy,
     /// Full scrollable YAML pane for a selected definition.
     DefDetail,
+    /// Full scrollable YAML/status pane for a selected application.
+    AppDetail,
 }
 
 // ─── Actions ──────────────────────────────────────────────────────────────────
@@ -200,6 +203,7 @@ impl VelaView {
             SubView::Defs => self.handle_defs_key(event),
             SubView::Policy => self.handle_policy_key(event),
             SubView::DefDetail => self.handle_def_detail_key(event),
+            SubView::AppDetail => self.handle_app_detail_key(event),
         }
     }
 
@@ -289,6 +293,20 @@ impl VelaView {
                     self.selected_app_ns = ns;
                     let policies = parse_policies(&raw);
                     self.set_policies(policies);
+                }
+            }
+
+            // d — scrollable full-status YAML for the selected app.
+            KeyCode::Char('d') => {
+                if let Some(app) = self.selected_app() {
+                    let title = format!(" {} / {} — Full Status ", app.namespace, app.name);
+                    let yaml = serde_yaml::to_string(&app.raw).unwrap_or_else(|_| {
+                        format!("name: {}\nnamespace: {}", app.name, app.namespace)
+                    });
+                    self.def_detail_title = title;
+                    self.def_detail_lines = yaml.lines().map(str::to_owned).collect();
+                    self.def_detail_scroll = 0;
+                    self.sub = SubView::AppDetail;
                 }
             }
 
@@ -515,6 +533,40 @@ impl VelaView {
         VelaAction::None
     }
 
+    // ── AppDetail key handler ─────────────────────────────────────────────────
+
+    fn handle_app_detail_key(&mut self, event: &KeyEvent) -> VelaAction {
+        match event.code {
+            KeyCode::Esc | KeyCode::Char('q') => {
+                self.sub = SubView::Apps;
+            }
+            KeyCode::Up | KeyCode::Char('k') => {
+                self.def_detail_scroll = self.def_detail_scroll.saturating_sub(1);
+            }
+            KeyCode::Down | KeyCode::Char('j') => {
+                let max = self.def_detail_lines.len().saturating_sub(1) as u16;
+                if self.def_detail_scroll < max {
+                    self.def_detail_scroll += 1;
+                }
+            }
+            KeyCode::PageUp => {
+                self.def_detail_scroll = self.def_detail_scroll.saturating_sub(20);
+            }
+            KeyCode::PageDown => {
+                let max = self.def_detail_lines.len().saturating_sub(1) as u16;
+                self.def_detail_scroll = (self.def_detail_scroll + 20).min(max);
+            }
+            KeyCode::Home | KeyCode::Char('g') => {
+                self.def_detail_scroll = 0;
+            }
+            KeyCode::End | KeyCode::Char('G') => {
+                self.def_detail_scroll = self.def_detail_lines.len().saturating_sub(1) as u16;
+            }
+            _ => {}
+        }
+        VelaAction::None
+    }
+
     // ── DefDetail key handler ─────────────────────────────────────────────────
 
     fn handle_def_detail_key(&mut self, event: &KeyEvent) -> VelaAction {
@@ -557,6 +609,7 @@ impl VelaView {
             SubView::Components => self.render_components(frame, area),
             SubView::Workflow => self.render_workflow(frame, area),
             SubView::Revisions => self.render_revisions(frame, area),
+            SubView::AppDetail => self.render_app_detail(frame, area),
             SubView::Defs => self.render_defs(frame, area),
             SubView::Policy => self.render_policy(frame, area),
             SubView::DefDetail => self.render_def_detail(frame, area),
@@ -930,6 +983,35 @@ impl VelaView {
 
         frame.render_stateful_widget(table, area, &mut self.policy_table);
         self.render_status(frame, area);
+    }
+
+    fn render_app_detail(&mut self, frame: &mut Frame, area: Rect) {
+        let total = self.def_detail_lines.len();
+        let content = self.def_detail_lines.join("\n");
+        let scroll = self.def_detail_scroll;
+
+        let block = Block::default()
+            .borders(Borders::ALL)
+            .title(self.def_detail_title.clone())
+            .title_style(
+                Style::default()
+                    .fg(Color::Cyan)
+                    .add_modifier(Modifier::BOLD),
+            );
+
+        let para = Paragraph::new(content)
+            .block(block)
+            .style(Style::default().fg(Color::White))
+            .scroll((scroll, 0));
+
+        frame.render_widget(para, area);
+
+        if total > area.height as usize {
+            let mut sb_state = ScrollbarState::new(total.saturating_sub(area.height as usize))
+                .position(scroll as usize);
+            let sb = Scrollbar::new(ScrollbarOrientation::VerticalRight);
+            frame.render_stateful_widget(sb, area, &mut sb_state);
+        }
     }
 
     fn render_def_detail(&mut self, frame: &mut Frame, area: Rect) {

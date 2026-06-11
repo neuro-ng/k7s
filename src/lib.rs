@@ -17,6 +17,7 @@ pub mod error;
 pub mod exec;
 pub mod health;
 pub mod history;
+pub mod mcp;
 pub mod meta;
 pub mod metrics;
 pub mod model;

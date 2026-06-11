@@ -23,6 +23,7 @@ mod client;
 mod dao;
 mod exec;
 mod health;
+mod mcp;
 mod meta;
 mod metrics;
 mod model;
@@ -302,6 +303,16 @@ enum Commands {
         action: MetaAction,
     },
 
+    /// Manage Helm releases.
+    ///
+    /// Read operations (`list`, `status`, `history`, `values`) call the `helm` CLI.
+    /// Mutating operations (`install`, `upgrade`, `rollback`, `uninstall`) also
+    /// require `helm` on PATH.
+    Helm {
+        #[command(subcommand)]
+        action: HelmCliAction,
+    },
+
     /// Interact with KubeVela Application Platform resources.
     ///
     /// Read operations query the Kubernetes API directly.
@@ -310,6 +321,32 @@ enum Commands {
     Vela {
         #[command(subcommand)]
         action: VelaCliAction,
+    },
+
+    /// Start the MCP (Model Context Protocol) server.
+    ///
+    /// Exposes Kubernetes cluster access as MCP tools so any MCP-compatible AI
+    /// client (Claude Desktop, Cursor, etc.) can interact with the cluster through
+    /// k7s's sanitizer security layer.
+    ///
+    /// Default transport is stdio — suitable for Claude Desktop:
+    /// ```json
+    /// {
+    ///   "mcpServers": {
+    ///     "k7s": { "command": "k7s", "args": ["mcp"] }
+    ///   }
+    /// }
+    /// ```
+    Mcp {
+        /// Transport: `stdio` (default) or `http`.
+        #[arg(long, default_value = "stdio")]
+        transport: String,
+        /// TCP port for the HTTP transport.
+        #[arg(long, default_value_t = 3000)]
+        port: u16,
+        /// Enable mutating tools (scale, rollout-restart).
+        #[arg(long)]
+        allow_mutations: bool,
     },
 }
 
@@ -387,6 +424,115 @@ enum MetaAction {
         /// Output format: `json` or `markdown` (default).
         #[arg(long, short = 'o', default_value = "markdown")]
         output: String,
+    },
+}
+
+/// Subcommands for `k7s helm`.
+#[derive(Subcommand, Debug)]
+enum HelmCliAction {
+    /// List all Helm releases.
+    List {
+        /// Limit to this namespace; omit for all namespaces.
+        #[arg(long, short = 'n')]
+        namespace: Option<String>,
+        /// Output format: `table` (default), `json`, or `yaml`.
+        #[arg(long, short = 'o', default_value = "table")]
+        output: String,
+    },
+    /// Show the status and metadata of a release.
+    Status {
+        /// Release name.
+        release: String,
+        /// Namespace of the release.
+        #[arg(long, short = 'n', default_value = "default")]
+        namespace: String,
+    },
+    /// Show the revision history of a release.
+    History {
+        /// Release name.
+        release: String,
+        /// Namespace of the release.
+        #[arg(long, short = 'n', default_value = "default")]
+        namespace: String,
+        /// Maximum number of revisions to show.
+        #[arg(long, default_value_t = 10)]
+        max: usize,
+    },
+    /// Show user-supplied values for a release (secrets redacted).
+    Values {
+        /// Release name.
+        release: String,
+        /// Namespace of the release.
+        #[arg(long, short = 'n', default_value = "default")]
+        namespace: String,
+        /// Output format: `yaml` (default) or `json`.
+        #[arg(long, short = 'o', default_value = "yaml")]
+        output: String,
+    },
+    /// Install a new Helm release.
+    Install {
+        /// Release name.
+        name: String,
+        /// Chart reference (e.g. `stable/nginx` or `./charts/myapp`).
+        chart: String,
+        /// Namespace to install into.
+        #[arg(long, short = 'n', default_value = "default")]
+        namespace: String,
+        /// Values file(s) to merge.
+        #[arg(long, short = 'f')]
+        values: Option<String>,
+        /// Set individual values (`key=value`).
+        #[arg(long)]
+        set: Vec<String>,
+        /// Preview without installing.
+        #[arg(long)]
+        dry_run: bool,
+    },
+    /// Upgrade an existing release to a new chart version.
+    Upgrade {
+        /// Release name.
+        release: String,
+        /// Chart reference.
+        chart: String,
+        /// Namespace of the release.
+        #[arg(long, short = 'n', default_value = "default")]
+        namespace: String,
+        /// Values file(s) to merge.
+        #[arg(long, short = 'f')]
+        values: Option<String>,
+        /// Set individual values (`key=value`).
+        #[arg(long)]
+        set: Vec<String>,
+        /// Install the release if it does not exist.
+        #[arg(long)]
+        install: bool,
+        /// Preview without upgrading.
+        #[arg(long)]
+        dry_run: bool,
+    },
+    /// Rollback a release to a previous revision.
+    Rollback {
+        /// Release name.
+        release: String,
+        /// Target revision (omit for previous revision).
+        revision: Option<u64>,
+        /// Namespace of the release.
+        #[arg(long, short = 'n', default_value = "default")]
+        namespace: String,
+        /// Preview without rolling back.
+        #[arg(long)]
+        dry_run: bool,
+    },
+    /// Uninstall a release.
+    Uninstall {
+        /// Release name.
+        release: String,
+        /// Namespace of the release.
+        #[arg(long, short = 'n', default_value = "default")]
+        namespace: String,
+        /// Preview without uninstalling.
+        #[arg(long)]
+        dry_run: bool,
     },
 }
 
@@ -486,6 +632,13 @@ enum VelaCliAction {
 // ─── Entry point ─────────────────────────────────────────────────────────────
 
 fn main() -> anyhow::Result<()> {
+    // Both kube (aws-lc-rs) and reqwest (ring) pull in rustls; without an
+    // explicit provider rustls panics on first TLS use.  Install aws-lc-rs
+    // (the kube-preferred provider) before any network activity.
+    rustls::crypto::aws_lc_rs::default_provider()
+        .install_default()
+        .expect("failed to install rustls crypto provider");
+
     let cli = Cli::parse();
 
     init_tracing(&cli.log_level, cli.log_file.as_deref())?;
@@ -526,7 +679,7 @@ fn main() -> anyhow::Result<()> {
     }
 
     // ── TUI mode (default) ───────────────────────────────────────────────────
-    ui::run(cfg).map_err(|e| {
+    ui::run(cfg, cli.namespace.clone()).map_err(|e| {
         tracing::error!(error = %e, "fatal error in TUI loop");
         e
     })
@@ -767,9 +920,23 @@ fn run_subcommand(
             run_meta(action, context)?;
         }
 
+        // ── Helm ─────────────────────────────────────────────────────────────
+        Commands::Helm { action } => {
+            run_helm(action)?;
+        }
+
         // ── KubeVela ─────────────────────────────────────────────────────────
         Commands::Vela { action } => {
             run_vela(action, context, namespace)?;
+        }
+
+        // ── MCP server ───────────────────────────────────────────────────────
+        Commands::Mcp {
+            transport,
+            port,
+            allow_mutations,
+        } => {
+            run_mcp(context, transport, port, allow_mutations)?;
         }
     }
 
@@ -1117,6 +1284,185 @@ fn run_meta(action: MetaAction, global_context: &Option<String>) -> anyhow::Resu
     Ok(())
 }
 
+// ─── Helm CLI handler ─────────────────────────────────────────────────────────
+
+fn run_helm(action: HelmCliAction) -> anyhow::Result<()> {
+    use crate::dao::helm::HelmDao;
+
+    let dao = HelmDao::new(None);
+
+    match action {
+        HelmCliAction::List { namespace, output } => {
+            let releases = dao.list(namespace.as_deref()).map_err(|e| anyhow::anyhow!("{e}"))?;
+            match output.as_str() {
+                "json" => println!("{}", serde_json::to_string_pretty(&releases)?),
+                "yaml" => println!("{}", serde_yaml::to_string(&releases)?),
+                _ => {
+                    println!(
+                        "{:<30} {:<20} {:<12} {:<10} {:<30} {:<12}",
+                        "NAME", "NAMESPACE", "REVISION", "STATUS", "CHART", "APP VERSION"
+                    );
+                    println!("{}", "-".repeat(120));
+                    for r in &releases {
+                        println!(
+                            "{:<30} {:<20} {:<12} {:<10} {:<30} {:<12}",
+                            r.name, r.namespace, r.revision, r.status, r.chart, r.app_version
+                        );
+                    }
+                    println!("\n{} release(s) found.", releases.len());
+                }
+            }
+        }
+
+        HelmCliAction::Status { release, namespace } => {
+            let releases = dao.list(Some(&namespace)).map_err(|e| anyhow::anyhow!("{e}"))?;
+            let rel = releases
+                .into_iter()
+                .find(|r| r.name == release)
+                .ok_or_else(|| anyhow::anyhow!("release '{}' not found in namespace '{}'", release, namespace))?;
+            println!("Name:        {}", rel.name);
+            println!("Namespace:   {}", rel.namespace);
+            println!("Chart:       {}", rel.chart);
+            println!("App Version: {}", rel.app_version);
+            println!("Status:      {}", rel.status);
+            println!("Revision:    {}", rel.revision);
+            println!("Updated:     {}", rel.updated);
+        }
+
+        HelmCliAction::History { release, namespace, max } => {
+            let history = dao
+                .history(&release, &namespace)
+                .map_err(|e| anyhow::anyhow!("{e}"))?;
+            println!(
+                "{:<10} {:<12} {:<30} {:<12} {:<30} {}",
+                "REVISION", "STATUS", "CHART", "APP VERSION", "UPDATED", "DESCRIPTION"
+            );
+            println!("{}", "-".repeat(120));
+            for e in history.iter().take(max) {
+                println!(
+                    "{:<10} {:<12} {:<30} {:<12} {:<30} {}",
+                    e.revision, e.status, e.chart, e.app_version, e.updated, e.description
+                );
+            }
+        }
+
+        HelmCliAction::Values { release, namespace, output } => {
+            let raw = run_helm_bin_capture(&[
+                "get", "values", &release, "-n", &namespace, "--output", &output,
+            ]);
+            // Sanitize secret lines before printing.
+            let sanitized = raw
+                .lines()
+                .map(|line| {
+                    let lower = line.to_lowercase();
+                    let is_secret = crate::sanitizer::helm::SECRET_KEY_PATTERNS
+                        .iter()
+                        .any(|p| lower.contains(&format!("{p}:")));
+                    if is_secret {
+                        if let Some(pos) = line.find(':') {
+                            format!("{}: [REDACTED]", &line[..pos])
+                        } else {
+                            "[REDACTED]".to_string()
+                        }
+                    } else {
+                        line.to_string()
+                    }
+                })
+                .collect::<Vec<_>>()
+                .join("\n");
+            println!("{sanitized}");
+        }
+
+        HelmCliAction::Install { name, chart, namespace, values, set, dry_run } => {
+            let mut args = vec!["install", &name, &chart, "-n", &namespace];
+            let values_str = values.as_deref().unwrap_or("");
+            if !values_str.is_empty() {
+                args.extend(["-f", values_str]);
+            }
+            let set_strs: Vec<String> = set;
+            for s in &set_strs {
+                args.extend(["--set", s.as_str()]);
+            }
+            if dry_run {
+                args.push("--dry-run");
+            }
+            run_helm_bin(&args);
+        }
+
+        HelmCliAction::Upgrade { release, chart, namespace, values, set, install, dry_run } => {
+            let mut args = vec!["upgrade", &release, &chart, "-n", &namespace];
+            let values_str = values.as_deref().unwrap_or("");
+            if !values_str.is_empty() {
+                args.extend(["-f", values_str]);
+            }
+            let set_strs: Vec<String> = set;
+            for s in &set_strs {
+                args.extend(["--set", s.as_str()]);
+            }
+            if install {
+                args.push("--install");
+            }
+            if dry_run {
+                args.push("--dry-run");
+            }
+            run_helm_bin(&args);
+        }
+
+        HelmCliAction::Rollback { release, revision, namespace, dry_run } => {
+            let rev_str;
+            let mut args = vec!["rollback", &release];
+            if let Some(rev) = revision {
+                rev_str = rev.to_string();
+                args.push(&rev_str);
+            }
+            args.extend(["-n", &namespace]);
+            if dry_run {
+                args.push("--dry-run");
+            }
+            run_helm_bin(&args);
+        }
+
+        HelmCliAction::Uninstall { release, namespace, dry_run } => {
+            let mut args = vec!["uninstall", &release, "-n", &namespace];
+            if dry_run {
+                args.push("--dry-run");
+            }
+            run_helm_bin(&args);
+        }
+    }
+
+    Ok(())
+}
+
+/// Run the `helm` binary with `args`, streaming stdout/stderr; exit on failure.
+fn run_helm_bin(args: &[&str]) {
+    let status = std::process::Command::new("helm").args(args).status();
+    match status {
+        Ok(s) if s.success() => {}
+        Ok(s) => std::process::exit(s.code().unwrap_or(1)),
+        Err(e) => {
+            eprintln!("error: helm CLI not found or failed to run: {e}");
+            std::process::exit(1);
+        }
+    }
+}
+
+/// Run the `helm` binary and capture its stdout as a String.
+fn run_helm_bin_capture(args: &[&str]) -> String {
+    match std::process::Command::new("helm").args(args).output() {
+        Ok(o) if o.status.success() => String::from_utf8_lossy(&o.stdout).into_owned(),
+        Ok(o) => {
+            let err = String::from_utf8_lossy(&o.stderr);
+            eprintln!("helm error: {}", err.trim());
+            String::new()
+        }
+        Err(e) => {
+            eprintln!("error: helm CLI not found or failed to run: {e}");
+            String::new()
+        }
+    }
+}
+
 // ─── KubeVela CLI handler ─────────────────────────────────────────────────────
 
 fn run_vela(
@@ -1333,6 +1679,61 @@ fn run_vela(
     }
 
     Ok(())
+}
+
+// ─── `k7s mcp` handler ───────────────────────────────────────────────────────
+
+/// Start the MCP server.
+///
+/// Connects to the Kubernetes cluster, builds the `McpState`, then runs the
+/// appropriate transport (stdio or http) until EOF or SIGINT.
+fn run_mcp(
+    context: &Option<String>,
+    transport: String,
+    port: u16,
+    allow_mutations: bool,
+) -> anyhow::Result<()> {
+    use crate::config::{ConfigDirs, McpConfig};
+    use crate::mcp::server::McpState;
+    use std::sync::Arc;
+
+    let rt = tokio::runtime::Runtime::new()?;
+    rt.block_on(async {
+        let client = build_kube_client(context).await?;
+
+        let meta_context = context
+            .clone()
+            .unwrap_or_else(|| "default".to_string());
+
+        let dirs = ConfigDirs::resolve()?;
+        let cfg = config::load(&dirs.config_file()).unwrap_or_default();
+
+        let mut mcp_cfg = cfg.k7s.mcp.clone();
+        // CLI flags override config values.
+        mcp_cfg.transport = transport;
+        mcp_cfg.port = port;
+        if allow_mutations {
+            mcp_cfg.allow_mutations = true;
+        }
+
+        let state = Arc::new(McpState::new(
+            client,
+            cfg.k7s.ai.sanitizer.clone(),
+            mcp_cfg.allow_mutations,
+            meta_context,
+        ));
+
+        tracing::info!(
+            transport = %mcp_cfg.transport,
+            port = mcp_cfg.port,
+            allow_mutations = mcp_cfg.allow_mutations,
+            "starting k7s MCP server"
+        );
+
+        crate::mcp::run(state, &mcp_cfg)
+            .await
+            .map_err(|e| anyhow::anyhow!("MCP server error: {e}"))
+    })
 }
 
 /// Build a kube::Client honoring the optional context override.

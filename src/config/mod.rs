@@ -102,6 +102,7 @@ pub struct K7sConfig {
     pub vela: VelaConfig,
     pub meta: MetaConfig,
     pub benchmark: BenchmarkConfig,
+    pub mcp: McpConfig,
 }
 
 impl Default for K7sConfig {
@@ -118,6 +119,7 @@ impl Default for K7sConfig {
             vela: VelaConfig::default(),
             meta: MetaConfig::default(),
             benchmark: BenchmarkConfig::default(),
+            mcp: McpConfig::default(),
         }
     }
 }
@@ -396,6 +398,48 @@ impl Default for BenchmarkConfig {
             method: "GET".to_owned(),
             body: None,
             headers: Vec::new(),
+        }
+    }
+}
+
+/// MCP server configuration — Phase 40.
+///
+/// Controls the Model Context Protocol server that exposes Kubernetes tools to
+/// external AI clients (Claude Desktop, Cursor, etc.).
+///
+/// Example:
+/// ```yaml
+/// k7s:
+///   mcp:
+///     enabled: true
+///     transport: stdio
+///     port: 3000
+///     allowMutations: false
+///     resourceRefreshInterval: 30
+/// ```
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct McpConfig {
+    /// Enable the MCP server. Default: `true`.
+    pub enabled: bool,
+    /// Transport to use: `"stdio"` (for Claude Desktop) or `"http"`. Default: `"stdio"`.
+    pub transport: String,
+    /// TCP port for the HTTP transport. Default: `3000`.
+    pub port: u16,
+    /// Enable mutating tools (`k8s_scale_deployment`, `k8s_rollout_restart`). Default: `false`.
+    pub allow_mutations: bool,
+    /// How often (in seconds) subscribed resources refresh their content. Default: `30`.
+    pub resource_refresh_interval: u64,
+}
+
+impl Default for McpConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            transport: "stdio".to_string(),
+            port: 3000,
+            allow_mutations: false,
+            resource_refresh_interval: 30,
         }
     }
 }

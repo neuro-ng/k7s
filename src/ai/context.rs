@@ -299,6 +299,117 @@ pub async fn build_vela_context(
     (items, scope)
 }
 
+// ─── Helm context ─────────────────────────────────────────────────────────────
+
+/// Build a sanitized AI context snapshot for a Helm release.
+///
+/// Fetches release info and history via the `helm` CLI and constructs
+/// `SafeMetadata` entries safe to send to the LLM.  Values are run through
+/// the `sanitize_helm_values` key-name + value-content redaction rules so
+/// no passwords, tokens, or connection strings reach the AI.
+pub async fn build_helm_context(
+    name: &str,
+    namespace: &str,
+) -> (Vec<SafeMetadata>, ContextScope) {
+    let scope = ContextScope::new("helm", name, Some(namespace));
+    let mut items: Vec<SafeMetadata> = Vec::new();
+
+    let dao = crate::dao::helm::HelmDao::new(None);
+
+    // 1. Current release summary.
+    if let Ok(releases) = dao.list(Some(namespace)) {
+        if let Some(rel) = releases.into_iter().find(|r| r.name == name) {
+            items.push(SafeMetadata {
+                gvr: "helm/v3/releases".to_string(),
+                name: name.to_owned(),
+                namespace: Some(namespace.to_owned()),
+                fields: json!({
+                    "name":        rel.name,
+                    "namespace":   rel.namespace,
+                    "chart":       rel.chart,
+                    "app_version": rel.app_version,
+                    "status":      rel.status,
+                    "revision":    rel.revision,
+                    "updated":     rel.updated,
+                }),
+            });
+        }
+    }
+
+    // 2. Revision history — last 5 revisions only for token budget.
+    if let Ok(history) = dao.history(name, namespace) {
+        let hist: Vec<serde_json::Value> = history
+            .iter()
+            .take(5)
+            .map(|e| {
+                json!({
+                    "revision":    e.revision,
+                    "status":      e.status,
+                    "chart":       e.chart,
+                    "app_version": e.app_version,
+                    "updated":     e.updated,
+                    "description": e.description,
+                })
+            })
+            .collect();
+        items.push(SafeMetadata {
+            gvr: "helm/v3/history".to_string(),
+            name: name.to_owned(),
+            namespace: Some(namespace.to_owned()),
+            fields: json!({ "revisions": hist }),
+        });
+    }
+
+    // 3. Sanitized values YAML — secret keys/values redacted via helm sanitizer.
+    let raw_values = helm_get_values(name, namespace);
+    if !raw_values.is_empty() && !raw_values.starts_with("Error") {
+        let sanitized = sanitize_helm_text_values(&raw_values);
+        if !sanitized.trim().is_empty() {
+            items.push(SafeMetadata {
+                gvr: "helm/v3/values".to_string(),
+                name: name.to_owned(),
+                namespace: Some(namespace.to_owned()),
+                fields: json!({ "values_yaml": sanitized }),
+            });
+        }
+    }
+
+    (items, scope)
+}
+
+/// Shell out to `helm get values <name> -n <ns> --output yaml`.
+fn helm_get_values(name: &str, namespace: &str) -> String {
+    match std::process::Command::new("helm")
+        .args(["get", "values", name, "-n", namespace, "--output", "yaml"])
+        .output()
+    {
+        Ok(o) if o.status.success() => String::from_utf8_lossy(&o.stdout).into_owned(),
+        _ => String::new(),
+    }
+}
+
+/// Redact secret-looking lines from Helm values YAML (line-level for text output).
+fn sanitize_helm_text_values(text: &str) -> String {
+    text.lines()
+        .map(|line| {
+            let lower = line.to_lowercase();
+            let is_secret = crate::sanitizer::helm::SECRET_KEY_PATTERNS
+                .iter()
+                .any(|p| lower.contains(&format!("{p}:")));
+            if is_secret {
+                if let Some(pos) = line.find(':') {
+                    format!("{}: [REDACTED]", &line[..pos])
+                } else {
+                    "[REDACTED]".to_string()
+                }
+            } else {
+                line.to_string()
+            }
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
 // ─── Tests ────────────────────────────────────────────────────────────────────
 
 #[cfg(test)]

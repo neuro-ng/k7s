@@ -747,6 +747,355 @@ fn centred_rect(percent_x: u16, height: u16, area: Rect) -> Rect {
     horiz[1]
 }
 
+// ─── HelmInstallDialog ───────────────────────────────────────────────────────
+
+/// Action returned by [`HelmInstallDialog::handle_key`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum HelmInstallAction {
+    /// User confirmed; carries all install parameters.
+    Confirm {
+        name: String,
+        chart: String,
+        namespace: String,
+        values_file: Option<String>,
+        set_args: Vec<String>,
+        dry_run: bool,
+    },
+    Cancel,
+    None,
+}
+
+/// A three-field modal for `helm install <name> <chart> -n <namespace>`.
+///
+/// Tab cycles through fields; Enter submits; Esc cancels.
+pub struct HelmInstallDialog {
+    release_name: String,
+    chart: String,
+    namespace: String,
+    focused: usize, // 0=name, 1=chart, 2=namespace
+    cursor: usize,
+    error: Option<String>,
+}
+
+impl HelmInstallDialog {
+    /// Pre-populate with release name and chart; namespace defaults to "default".
+    pub fn new(name: impl Into<String>, chart: impl Into<String>) -> Self {
+        let name = name.into();
+        let cursor = name.len();
+        Self {
+            release_name: name,
+            chart: chart.into(),
+            namespace: "default".to_string(),
+            focused: 0,
+            cursor,
+            error: None,
+        }
+    }
+
+    pub fn handle_key(&mut self, key: KeyCode) -> HelmInstallAction {
+        match key {
+            KeyCode::Enter => {
+                let name = self.release_name.trim().to_owned();
+                let chart = self.chart.trim().to_owned();
+                let ns = self.namespace.trim().to_owned();
+                if name.is_empty() {
+                    self.error = Some("Release name cannot be empty".into());
+                    return HelmInstallAction::None;
+                }
+                if chart.is_empty() {
+                    self.error = Some("Chart reference cannot be empty".into());
+                    return HelmInstallAction::None;
+                }
+                HelmInstallAction::Confirm {
+                    name,
+                    chart,
+                    namespace: if ns.is_empty() { "default".into() } else { ns },
+                    values_file: None,
+                    set_args: vec![],
+                    dry_run: false,
+                }
+            }
+            KeyCode::Esc => HelmInstallAction::Cancel,
+            KeyCode::Tab => {
+                self.focused = (self.focused + 1) % 3;
+                self.cursor = self.active_field().len();
+                HelmInstallAction::None
+            }
+            KeyCode::BackTab => {
+                self.focused = if self.focused == 0 { 2 } else { self.focused - 1 };
+                self.cursor = self.active_field().len();
+                HelmInstallAction::None
+            }
+            KeyCode::Char(c) => {
+                let cursor = self.cursor;
+                self.active_field_mut().insert(cursor, c);
+                self.cursor += c.len_utf8();
+                self.error = None;
+                HelmInstallAction::None
+            }
+            KeyCode::Backspace => {
+                if self.cursor > 0 {
+                    self.cursor -= 1;
+                    let cursor = self.cursor;
+                    self.active_field_mut().remove(cursor);
+                    self.error = None;
+                }
+                HelmInstallAction::None
+            }
+            KeyCode::Left => {
+                self.cursor = self.cursor.saturating_sub(1);
+                HelmInstallAction::None
+            }
+            KeyCode::Right => {
+                self.cursor = (self.cursor + 1).min(self.active_field().len());
+                HelmInstallAction::None
+            }
+            _ => HelmInstallAction::None,
+        }
+    }
+
+    fn active_field(&self) -> &str {
+        match self.focused {
+            0 => &self.release_name,
+            1 => &self.chart,
+            _ => &self.namespace,
+        }
+    }
+
+    fn active_field_mut(&mut self) -> &mut String {
+        match self.focused {
+            0 => &mut self.release_name,
+            1 => &mut self.chart,
+            _ => &mut self.namespace,
+        }
+    }
+
+    pub fn render(&self, frame: &mut Frame, area: Rect) {
+        let popup = centred_rect(60, 12, area);
+        frame.render_widget(Clear, popup);
+
+        let block = Block::default()
+            .borders(Borders::ALL)
+            .title(Span::styled(" Helm Install ", Style::default().add_modifier(Modifier::BOLD)));
+        let inner = block.inner(popup);
+        frame.render_widget(block, popup);
+
+        let highlight = Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD);
+        let normal = Style::default().fg(Color::White);
+
+        let field_style = |idx: usize| if idx == self.focused { highlight } else { normal };
+
+        let mut name_disp = self.release_name.clone();
+        let mut chart_disp = self.chart.clone();
+        let mut ns_disp = self.namespace.clone();
+        match self.focused {
+            0 => { name_disp.insert(self.cursor, '▏'); }
+            1 => { chart_disp.insert(self.cursor, '▏'); }
+            _ => { ns_disp.insert(self.cursor, '▏'); }
+        }
+
+        let mut lines = vec![
+            Line::raw(""),
+            Line::from(vec![
+                Span::raw("  Release Name : "),
+                Span::styled(name_disp, field_style(0)),
+            ]),
+            Line::raw(""),
+            Line::from(vec![
+                Span::raw("  Chart        : "),
+                Span::styled(chart_disp, field_style(1)),
+            ]),
+            Line::raw(""),
+            Line::from(vec![
+                Span::raw("  Namespace    : "),
+                Span::styled(ns_disp, field_style(2)),
+            ]),
+            Line::raw(""),
+            Line::from(Span::styled(
+                "  Tab next field   Enter install   Esc cancel",
+                Style::default().fg(Color::DarkGray),
+            )),
+        ];
+        if let Some(e) = &self.error {
+            lines.push(Line::from(Span::styled(e.as_str(), Style::default().fg(Color::Red))));
+        }
+        frame.render_widget(Paragraph::new(lines).wrap(Wrap { trim: false }), inner);
+    }
+}
+
+// ─── HelmUpgradeDialog ───────────────────────────────────────────────────────
+
+/// Action returned by [`HelmUpgradeDialog::handle_key`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum HelmUpgradeAction {
+    Confirm {
+        release: String,
+        chart: String,
+        namespace: String,
+        values_file: Option<String>,
+        set_args: Vec<String>,
+        install_flag: bool,
+        dry_run: bool,
+    },
+    Cancel,
+    None,
+}
+
+/// A three-field modal for `helm upgrade <release> <chart> -n <namespace>`.
+pub struct HelmUpgradeDialog {
+    release: String,
+    chart: String,
+    namespace: String,
+    focused: usize,
+    cursor: usize,
+    error: Option<String>,
+}
+
+impl HelmUpgradeDialog {
+    pub fn new(release: impl Into<String>, chart: impl Into<String>) -> Self {
+        let release = release.into();
+        let cursor = release.len();
+        Self {
+            release,
+            chart: chart.into(),
+            namespace: "default".to_string(),
+            focused: 0,
+            cursor,
+            error: None,
+        }
+    }
+
+    pub fn handle_key(&mut self, key: KeyCode) -> HelmUpgradeAction {
+        match key {
+            KeyCode::Enter => {
+                let rel = self.release.trim().to_owned();
+                let chart = self.chart.trim().to_owned();
+                let ns = self.namespace.trim().to_owned();
+                if rel.is_empty() {
+                    self.error = Some("Release name cannot be empty".into());
+                    return HelmUpgradeAction::None;
+                }
+                if chart.is_empty() {
+                    self.error = Some("Chart reference cannot be empty".into());
+                    return HelmUpgradeAction::None;
+                }
+                HelmUpgradeAction::Confirm {
+                    release: rel,
+                    chart,
+                    namespace: if ns.is_empty() { "default".into() } else { ns },
+                    values_file: None,
+                    set_args: vec![],
+                    install_flag: false,
+                    dry_run: false,
+                }
+            }
+            KeyCode::Esc => HelmUpgradeAction::Cancel,
+            KeyCode::Tab => {
+                self.focused = (self.focused + 1) % 3;
+                self.cursor = self.active_field().len();
+                HelmUpgradeAction::None
+            }
+            KeyCode::BackTab => {
+                self.focused = if self.focused == 0 { 2 } else { self.focused - 1 };
+                self.cursor = self.active_field().len();
+                HelmUpgradeAction::None
+            }
+            KeyCode::Char(c) => {
+                let cursor = self.cursor;
+                self.active_field_mut().insert(cursor, c);
+                self.cursor += c.len_utf8();
+                self.error = None;
+                HelmUpgradeAction::None
+            }
+            KeyCode::Backspace => {
+                if self.cursor > 0 {
+                    self.cursor -= 1;
+                    let cursor = self.cursor;
+                    self.active_field_mut().remove(cursor);
+                    self.error = None;
+                }
+                HelmUpgradeAction::None
+            }
+            KeyCode::Left => {
+                self.cursor = self.cursor.saturating_sub(1);
+                HelmUpgradeAction::None
+            }
+            KeyCode::Right => {
+                self.cursor = (self.cursor + 1).min(self.active_field().len());
+                HelmUpgradeAction::None
+            }
+            _ => HelmUpgradeAction::None,
+        }
+    }
+
+    fn active_field(&self) -> &str {
+        match self.focused {
+            0 => &self.release,
+            1 => &self.chart,
+            _ => &self.namespace,
+        }
+    }
+
+    fn active_field_mut(&mut self) -> &mut String {
+        match self.focused {
+            0 => &mut self.release,
+            1 => &mut self.chart,
+            _ => &mut self.namespace,
+        }
+    }
+
+    pub fn render(&self, frame: &mut Frame, area: Rect) {
+        let popup = centred_rect(60, 12, area);
+        frame.render_widget(Clear, popup);
+
+        let block = Block::default()
+            .borders(Borders::ALL)
+            .title(Span::styled(" Helm Upgrade ", Style::default().add_modifier(Modifier::BOLD)));
+        let inner = block.inner(popup);
+        frame.render_widget(block, popup);
+
+        let highlight = Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD);
+        let normal = Style::default().fg(Color::White);
+        let field_style = |idx: usize| if idx == self.focused { highlight } else { normal };
+
+        let mut rel_disp = self.release.clone();
+        let mut chart_disp = self.chart.clone();
+        let mut ns_disp = self.namespace.clone();
+        match self.focused {
+            0 => { rel_disp.insert(self.cursor, '▏'); }
+            1 => { chart_disp.insert(self.cursor, '▏'); }
+            _ => { ns_disp.insert(self.cursor, '▏'); }
+        }
+
+        let mut lines = vec![
+            Line::raw(""),
+            Line::from(vec![
+                Span::raw("  Release Name : "),
+                Span::styled(rel_disp, field_style(0)),
+            ]),
+            Line::raw(""),
+            Line::from(vec![
+                Span::raw("  Chart        : "),
+                Span::styled(chart_disp, field_style(1)),
+            ]),
+            Line::raw(""),
+            Line::from(vec![
+                Span::raw("  Namespace    : "),
+                Span::styled(ns_disp, field_style(2)),
+            ]),
+            Line::raw(""),
+            Line::from(Span::styled(
+                "  Tab next field   Enter upgrade   Esc cancel",
+                Style::default().fg(Color::DarkGray),
+            )),
+        ];
+        if let Some(e) = &self.error {
+            lines.push(Line::from(Span::styled(e.as_str(), Style::default().fg(Color::Red))));
+        }
+        frame.render_widget(Paragraph::new(lines).wrap(Wrap { trim: false }), inner);
+    }
+}
+
 // ─── Tests ────────────────────────────────────────────────────────────────────
 
 #[cfg(test)]
@@ -950,5 +1299,50 @@ mod tests {
         dlg.pod_port.push('x'); // direct field write to bypass handle_key digit filter
         assert_eq!(dlg.handle_key(KeyCode::Enter), PortForwardAction::None);
         assert!(dlg.error.is_some());
+    }
+
+    #[test]
+    fn helm_install_confirm_returns_params() {
+        let mut dlg = HelmInstallDialog::new("my-release", "stable/nginx");
+        assert_eq!(
+            dlg.handle_key(KeyCode::Enter),
+            HelmInstallAction::Confirm {
+                name: "my-release".to_string(),
+                chart: "stable/nginx".to_string(),
+                namespace: "default".to_string(),
+                values_file: None,
+                set_args: vec![],
+                dry_run: false,
+            }
+        );
+    }
+
+    #[test]
+    fn helm_install_esc_cancels() {
+        let mut dlg = HelmInstallDialog::new("rel", "chart");
+        assert_eq!(dlg.handle_key(KeyCode::Esc), HelmInstallAction::Cancel);
+    }
+
+    #[test]
+    fn helm_upgrade_confirm_returns_params() {
+        let mut dlg = HelmUpgradeDialog::new("my-release", "stable/nginx");
+        assert_eq!(
+            dlg.handle_key(KeyCode::Enter),
+            HelmUpgradeAction::Confirm {
+                release: "my-release".to_string(),
+                chart: "stable/nginx".to_string(),
+                namespace: "default".to_string(),
+                values_file: None,
+                set_args: vec![],
+                install_flag: false,
+                dry_run: false,
+            }
+        );
+    }
+
+    #[test]
+    fn helm_upgrade_esc_cancels() {
+        let mut dlg = HelmUpgradeDialog::new("rel", "chart");
+        assert_eq!(dlg.handle_key(KeyCode::Esc), HelmUpgradeAction::Cancel);
     }
 }

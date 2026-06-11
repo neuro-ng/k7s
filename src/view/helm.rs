@@ -52,6 +52,10 @@ pub enum HelmAction {
         namespace: String,
         revision: u64,
     },
+    /// Open install dialog for a new release.
+    Install { name: String, chart: String },
+    /// Open upgrade dialog for the selected release.
+    Upgrade { release: String, chart: String },
     /// No action needed.
     None,
 }
@@ -237,6 +241,24 @@ impl HelmView {
                     return HelmAction::AiAnalyse {
                         name: r.name.clone(),
                         namespace: r.namespace.clone(),
+                    };
+                }
+            }
+
+            // I — install dialog (new release).
+            KeyCode::Char('I') => {
+                return HelmAction::Install {
+                    name: String::new(),
+                    chart: String::new(),
+                };
+            }
+
+            // U — upgrade dialog (selected release).
+            KeyCode::Char('U') => {
+                if let Some(r) = self.selected_release() {
+                    return HelmAction::Upgrade {
+                        release: r.name.clone(),
+                        chart: r.chart.clone(),
                     };
                 }
             }
