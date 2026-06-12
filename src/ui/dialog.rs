@@ -822,7 +822,11 @@ impl HelmInstallDialog {
                 HelmInstallAction::None
             }
             KeyCode::BackTab => {
-                self.focused = if self.focused == 0 { 2 } else { self.focused - 1 };
+                self.focused = if self.focused == 0 {
+                    2
+                } else {
+                    self.focused - 1
+                };
                 self.cursor = self.active_field().len();
                 HelmInstallAction::None
             }
@@ -874,24 +878,39 @@ impl HelmInstallDialog {
         let popup = centred_rect(60, 12, area);
         frame.render_widget(Clear, popup);
 
-        let block = Block::default()
-            .borders(Borders::ALL)
-            .title(Span::styled(" Helm Install ", Style::default().add_modifier(Modifier::BOLD)));
+        let block = Block::default().borders(Borders::ALL).title(Span::styled(
+            " Helm Install ",
+            Style::default().add_modifier(Modifier::BOLD),
+        ));
         let inner = block.inner(popup);
         frame.render_widget(block, popup);
 
-        let highlight = Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD);
+        let highlight = Style::default()
+            .fg(Color::Yellow)
+            .add_modifier(Modifier::BOLD);
         let normal = Style::default().fg(Color::White);
 
-        let field_style = |idx: usize| if idx == self.focused { highlight } else { normal };
+        let field_style = |idx: usize| {
+            if idx == self.focused {
+                highlight
+            } else {
+                normal
+            }
+        };
 
         let mut name_disp = self.release_name.clone();
         let mut chart_disp = self.chart.clone();
         let mut ns_disp = self.namespace.clone();
         match self.focused {
-            0 => { name_disp.insert(self.cursor, '▏'); }
-            1 => { chart_disp.insert(self.cursor, '▏'); }
-            _ => { ns_disp.insert(self.cursor, '▏'); }
+            0 => {
+                name_disp.insert(self.cursor, '▏');
+            }
+            1 => {
+                chart_disp.insert(self.cursor, '▏');
+            }
+            _ => {
+                ns_disp.insert(self.cursor, '▏');
+            }
         }
 
         let mut lines = vec![
@@ -917,7 +936,10 @@ impl HelmInstallDialog {
             )),
         ];
         if let Some(e) = &self.error {
-            lines.push(Line::from(Span::styled(e.as_str(), Style::default().fg(Color::Red))));
+            lines.push(Line::from(Span::styled(
+                e.as_str(),
+                Style::default().fg(Color::Red),
+            )));
         }
         frame.render_widget(Paragraph::new(lines).wrap(Wrap { trim: false }), inner);
     }
@@ -996,7 +1018,11 @@ impl HelmUpgradeDialog {
                 HelmUpgradeAction::None
             }
             KeyCode::BackTab => {
-                self.focused = if self.focused == 0 { 2 } else { self.focused - 1 };
+                self.focused = if self.focused == 0 {
+                    2
+                } else {
+                    self.focused - 1
+                };
                 self.cursor = self.active_field().len();
                 HelmUpgradeAction::None
             }
@@ -1048,23 +1074,38 @@ impl HelmUpgradeDialog {
         let popup = centred_rect(60, 12, area);
         frame.render_widget(Clear, popup);
 
-        let block = Block::default()
-            .borders(Borders::ALL)
-            .title(Span::styled(" Helm Upgrade ", Style::default().add_modifier(Modifier::BOLD)));
+        let block = Block::default().borders(Borders::ALL).title(Span::styled(
+            " Helm Upgrade ",
+            Style::default().add_modifier(Modifier::BOLD),
+        ));
         let inner = block.inner(popup);
         frame.render_widget(block, popup);
 
-        let highlight = Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD);
+        let highlight = Style::default()
+            .fg(Color::Yellow)
+            .add_modifier(Modifier::BOLD);
         let normal = Style::default().fg(Color::White);
-        let field_style = |idx: usize| if idx == self.focused { highlight } else { normal };
+        let field_style = |idx: usize| {
+            if idx == self.focused {
+                highlight
+            } else {
+                normal
+            }
+        };
 
         let mut rel_disp = self.release.clone();
         let mut chart_disp = self.chart.clone();
         let mut ns_disp = self.namespace.clone();
         match self.focused {
-            0 => { rel_disp.insert(self.cursor, '▏'); }
-            1 => { chart_disp.insert(self.cursor, '▏'); }
-            _ => { ns_disp.insert(self.cursor, '▏'); }
+            0 => {
+                rel_disp.insert(self.cursor, '▏');
+            }
+            1 => {
+                chart_disp.insert(self.cursor, '▏');
+            }
+            _ => {
+                ns_disp.insert(self.cursor, '▏');
+            }
         }
 
         let mut lines = vec![
@@ -1090,7 +1131,10 @@ impl HelmUpgradeDialog {
             )),
         ];
         if let Some(e) = &self.error {
-            lines.push(Line::from(Span::styled(e.as_str(), Style::default().fg(Color::Red))));
+            lines.push(Line::from(Span::styled(
+                e.as_str(),
+                Style::default().fg(Color::Red),
+            )));
         }
         frame.render_widget(Paragraph::new(lines).wrap(Wrap { trim: false }), inner);
     }

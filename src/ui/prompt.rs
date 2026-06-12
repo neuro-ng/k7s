@@ -249,7 +249,8 @@ fn parse_command(cmd: &str) -> PromptSubmit {
 
     match verb {
         "ns" | "namespace" => match arg {
-            None | Some("") | Some("-") => PromptSubmit::Namespace(None), // all namespaces
+            None | Some("") => PromptSubmit::Navigate("ns".to_owned()), // bare :ns → open namespace browser
+            Some("-") => PromptSubmit::Namespace(None), // :ns - → all-namespaces scope
             Some(ns) => PromptSubmit::Namespace(Some(ns.to_owned())),
         },
         "ctx" | "context" => match arg {
@@ -361,7 +362,7 @@ mod tests {
             PromptSubmit::Namespace(Some("default".to_owned()))
         );
         assert_eq!(parse_command("ns -"), PromptSubmit::Namespace(None));
-        assert_eq!(parse_command("ns"), PromptSubmit::Namespace(None));
+        assert_eq!(parse_command("ns"), PromptSubmit::Navigate("ns".to_owned()));
     }
 
     #[test]

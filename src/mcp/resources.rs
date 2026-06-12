@@ -51,38 +51,41 @@ fn register_cluster_health(core: &FastMCPServer, state: Arc<McpState>) -> Result
         },
     };
 
-    let handler: Arc<ResourceReadHandler> = Arc::new(Box::new(move |_uri: String, _ctx: Context| {
-        let state = Arc::clone(&state);
-        Box::pin(async move {
-            let summary = build_cluster_summary(&state.client, None).await;
-            let v = serde_json::json!({
-                "pods": {
-                    "total": summary.pods.total,
-                    "running": summary.pods.running,
-                    "failed": summary.pods.failed,
-                    "pending": summary.pods.pending,
-                },
-                "deployments": {
-                    "total": summary.deployments.total,
-                    "running": summary.deployments.running,
-                    "failed": summary.deployments.failed,
-                },
-                "nodes": {
-                    "total": summary.nodes.total,
-                    "ready": summary.nodes.ready,
-                },
-                "namespaces": summary.namespaces,
-                "events_warn": summary.events_warn,
-                "events_total": summary.events_total,
-            });
-            let json = serde_json::to_string_pretty(&v)
-                .unwrap_or_else(|_| "{}".to_string());
-            Ok(ResourceResult {
-                contents: vec![ResourceContent::text(json, Some("application/json".to_string()))],
-                meta: None,
+    let handler: Arc<ResourceReadHandler> =
+        Arc::new(Box::new(move |_uri: String, _ctx: Context| {
+            let state = Arc::clone(&state);
+            Box::pin(async move {
+                let summary = build_cluster_summary(&state.client, None).await;
+                let v = serde_json::json!({
+                    "pods": {
+                        "total": summary.pods.total,
+                        "running": summary.pods.running,
+                        "failed": summary.pods.failed,
+                        "pending": summary.pods.pending,
+                    },
+                    "deployments": {
+                        "total": summary.deployments.total,
+                        "running": summary.deployments.running,
+                        "failed": summary.deployments.failed,
+                    },
+                    "nodes": {
+                        "total": summary.nodes.total,
+                        "ready": summary.nodes.ready,
+                    },
+                    "namespaces": summary.namespaces,
+                    "events_warn": summary.events_warn,
+                    "events_total": summary.events_total,
+                });
+                let json = serde_json::to_string_pretty(&v).unwrap_or_else(|_| "{}".to_string());
+                Ok(ResourceResult {
+                    contents: vec![ResourceContent::text(
+                        json,
+                        Some("application/json".to_string()),
+                    )],
+                    meta: None,
+                })
             })
-        })
-    }));
+        }));
 
     core.add_resource(resource, Some(handler))
 }
@@ -104,29 +107,33 @@ fn register_namespaces(core: &FastMCPServer, state: Arc<McpState>) -> Result<(),
         },
     };
 
-    let handler: Arc<ResourceReadHandler> = Arc::new(Box::new(move |_uri: String, _ctx: Context| {
-        let state = Arc::clone(&state);
-        Box::pin(async move {
-            let dao = NamespaceDao::new();
-            let names = dao
-                .list_names(&state.client)
-                .await
-                .unwrap_or_default();
-            let json = serde_json::to_string_pretty(&json!({"namespaces": names}))
-                .unwrap_or_else(|_| "{}".to_string());
-            Ok(ResourceResult {
-                contents: vec![ResourceContent::text(json, Some("application/json".to_string()))],
-                meta: None,
+    let handler: Arc<ResourceReadHandler> =
+        Arc::new(Box::new(move |_uri: String, _ctx: Context| {
+            let state = Arc::clone(&state);
+            Box::pin(async move {
+                let dao = NamespaceDao::new();
+                let names = dao.list_names(&state.client).await.unwrap_or_default();
+                let json = serde_json::to_string_pretty(&json!({"namespaces": names}))
+                    .unwrap_or_else(|_| "{}".to_string());
+                Ok(ResourceResult {
+                    contents: vec![ResourceContent::text(
+                        json,
+                        Some("application/json".to_string()),
+                    )],
+                    meta: None,
+                })
             })
-        })
-    }));
+        }));
 
     core.add_resource(resource, Some(handler))
 }
 
 // ─── k8s://cluster/history ───────────────────────────────────────────────────
 
-fn register_cluster_history(core: &FastMCPServer, state: Arc<McpState>) -> Result<(), FastMCPError> {
+fn register_cluster_history(
+    core: &FastMCPServer,
+    state: Arc<McpState>,
+) -> Result<(), FastMCPError> {
     let resource = Resource {
         uri: "k8s://cluster/history".to_string(),
         description: Some(
@@ -145,25 +152,26 @@ fn register_cluster_history(core: &FastMCPServer, state: Arc<McpState>) -> Resul
         },
     };
 
-    let handler: Arc<ResourceReadHandler> = Arc::new(Box::new(move |_uri: String, _ctx: Context| {
-        let state = Arc::clone(&state);
-        Box::pin(async move {
-            let text = match MetadataStore::new(&state.meta_context) {
-                Some(store) => {
-                    let records = store.load_recent(7);
-                    summarise(&records, 7, &state.meta_context).to_context_block()
-                }
-                None => format!(
-                    "No cluster metadata journal found for context '{}'.",
-                    state.meta_context
-                ),
-            };
-            Ok(ResourceResult {
-                contents: vec![ResourceContent::text(text, Some("text/plain".to_string()))],
-                meta: None,
+    let handler: Arc<ResourceReadHandler> =
+        Arc::new(Box::new(move |_uri: String, _ctx: Context| {
+            let state = Arc::clone(&state);
+            Box::pin(async move {
+                let text = match MetadataStore::new(&state.meta_context) {
+                    Some(store) => {
+                        let records = store.load_recent(7);
+                        summarise(&records, 7, &state.meta_context).to_context_block()
+                    }
+                    None => format!(
+                        "No cluster metadata journal found for context '{}'.",
+                        state.meta_context
+                    ),
+                };
+                Ok(ResourceResult {
+                    contents: vec![ResourceContent::text(text, Some("text/plain".to_string()))],
+                    meta: None,
+                })
             })
-        })
-    }));
+        }));
 
     core.add_resource(resource, Some(handler))
 }

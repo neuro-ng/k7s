@@ -62,8 +62,16 @@ fn list_resources(state: Arc<McpState>) -> Tool {
         "List Kubernetes resources of a given type in a namespace. \
          Returns sanitized metadata only — no secrets or credentials.",
     )
-    .add_parameter("resource", "string", "Resource type, e.g. pods, deployments, services")
-    .add_parameter("namespace", "string", "Namespace to query (empty string = all namespaces)")
+    .add_parameter(
+        "resource",
+        "string",
+        "Resource type, e.g. pods, deployments, services",
+    )
+    .add_parameter(
+        "namespace",
+        "string",
+        "Namespace to query (empty string = all namespaces)",
+    )
     .with_handler(make_handler(state, |s, args| async move {
         let resource = str_arg(&args, "resource").unwrap_or("pods");
         let namespace = str_arg(&args, "namespace").filter(|n| !n.is_empty());
@@ -90,8 +98,7 @@ fn list_resources(state: Arc<McpState>) -> Tool {
                 .and_then(|n: &Value| n.as_str())
                 .map(|s: &str| s.to_string());
 
-            if let Ok(safe) =
-                sanitizer::sanitize(&gvr, ns.as_deref(), &name, raw, &s.sanitizer_cfg)
+            if let Ok(safe) = sanitizer::sanitize(&gvr, ns.as_deref(), &name, raw, &s.sanitizer_cfg)
             {
                 sanitized.push(safe.fields);
             }
@@ -110,16 +117,17 @@ fn get_pod_logs(state: Arc<McpState>) -> Tool {
     )
     .add_parameter("pod", "string", "Pod name")
     .add_parameter("namespace", "string", "Namespace the pod lives in")
-    .add_parameter("container", "string", "Container name (optional for single-container pods)")
+    .add_parameter(
+        "container",
+        "string",
+        "Container name (optional for single-container pods)",
+    )
     .add_parameter("tail", "integer", "Number of lines to tail (default 200)")
     .with_handler(make_handler(state, |s, args| async move {
         let pod = require_str(&args, "pod")?;
         let namespace = require_str(&args, "namespace")?;
         let container = str_arg(&args, "container");
-        let tail = args
-            .get("tail")
-            .and_then(|v| v.as_i64())
-            .unwrap_or(200);
+        let tail = args.get("tail").and_then(|v| v.as_i64()).unwrap_or(200);
 
         let api: Api<Pod> = Api::namespaced(s.client.clone(), namespace);
         let raw_logs = api
@@ -157,9 +165,17 @@ fn describe_resource(state: Arc<McpState>) -> Tool {
         "Describe a Kubernetes resource (equivalent to kubectl describe). \
          Output is redacted to remove any secrets or credentials.",
     )
-    .add_parameter("resource", "string", "Resource type, e.g. pod, deployment, node")
+    .add_parameter(
+        "resource",
+        "string",
+        "Resource type, e.g. pod, deployment, node",
+    )
     .add_parameter("name", "string", "Resource name")
-    .add_parameter("namespace", "string", "Namespace (leave empty for cluster-scoped resources)")
+    .add_parameter(
+        "namespace",
+        "string",
+        "Namespace (leave empty for cluster-scoped resources)",
+    )
     .with_handler(make_handler(state, |s, args| async move {
         let resource = require_str(&args, "resource")?;
         let name = require_str(&args, "name")?;
@@ -177,10 +193,8 @@ fn describe_resource(state: Arc<McpState>) -> Tool {
             .map_err(|e| FastMCPError::new(format!("kubectl not found: {e}")))?;
 
         let raw = String::from_utf8_lossy(&output.stdout).to_string();
-        let redactor =
-            crate::sanitizer::Redactor::new(&s.sanitizer_cfg.custom_patterns).map_err(|e| {
-                FastMCPError::new(e.to_string())
-            })?;
+        let redactor = crate::sanitizer::Redactor::new(&s.sanitizer_cfg.custom_patterns)
+            .map_err(|e| FastMCPError::new(e.to_string()))?;
         let safe = redactor.redact_str(&raw);
 
         Ok(text_result(safe))
@@ -193,8 +207,16 @@ fn get_events(state: Arc<McpState>) -> Tool {
         "List recent Kubernetes events for a namespace or specific resource. \
          Capped at 20 entries; annotation values are redacted.",
     )
-    .add_parameter("namespace", "string", "Namespace to query (empty = all namespaces)")
-    .add_parameter("resource_name", "string", "Optional: filter events for this resource name")
+    .add_parameter(
+        "namespace",
+        "string",
+        "Namespace to query (empty = all namespaces)",
+    )
+    .add_parameter(
+        "resource_name",
+        "string",
+        "Optional: filter events for this resource name",
+    )
     .with_handler(make_handler(state, |s, args| async move {
         let namespace = str_arg(&args, "namespace").filter(|n| !n.is_empty());
         let resource_name = str_arg(&args, "resource_name");
@@ -217,7 +239,9 @@ fn get_events(state: Arc<McpState>) -> Tool {
             .map(|e| sanitize_event(e))
             .collect();
 
-        Ok(json_result(json!({"events": filtered, "count": filtered.len()})))
+        Ok(json_result(
+            json!({"events": filtered, "count": filtered.len()}),
+        ))
     }))
 }
 
@@ -304,10 +328,7 @@ fn list_namespaces(state: Arc<McpState>) -> Tool {
     )
     .with_handler(make_handler(state, |s, _args| async move {
         let dao = NamespaceDao::new();
-        let names = dao
-            .list_names(&s.client)
-            .await
-            .map_err(anyhow_to_mcp)?;
+        let names = dao.list_names(&s.client).await.map_err(anyhow_to_mcp)?;
         Ok(json_result(json!({"namespaces": names})))
     }))
 }
@@ -364,7 +385,8 @@ fn scale_deployment(state: Arc<McpState>) -> Tool {
         let replicas = args
             .get("replicas")
             .and_then(|v| v.as_u64())
-            .ok_or_else(|| FastMCPError::new("replicas must be an integer".to_string()))? as u32;
+            .ok_or_else(|| FastMCPError::new("replicas must be an integer".to_string()))?
+            as u32;
 
         let api: Api<Deployment> = Api::namespaced(s.client.clone(), namespace);
         let patch = json!({"spec": {"replicas": replicas}});
@@ -429,7 +451,9 @@ fn rollout_restart(state: Arc<McpState>) -> Tool {
 
 /// Extract a string argument from the args JSON object (returns `None` if missing or empty).
 fn str_arg<'a>(args: &'a Value, key: &str) -> Option<&'a str> {
-    args.get(key).and_then(|v| v.as_str()).filter(|s| !s.is_empty())
+    args.get(key)
+        .and_then(|v| v.as_str())
+        .filter(|s| !s.is_empty())
 }
 
 /// Extract a required string argument, returning a `FastMCPError` when absent.

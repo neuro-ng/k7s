@@ -1293,7 +1293,9 @@ fn run_helm(action: HelmCliAction) -> anyhow::Result<()> {
 
     match action {
         HelmCliAction::List { namespace, output } => {
-            let releases = dao.list(namespace.as_deref()).map_err(|e| anyhow::anyhow!("{e}"))?;
+            let releases = dao
+                .list(namespace.as_deref())
+                .map_err(|e| anyhow::anyhow!("{e}"))?;
             match output.as_str() {
                 "json" => println!("{}", serde_json::to_string_pretty(&releases)?),
                 "yaml" => println!("{}", serde_yaml::to_string(&releases)?),
@@ -1315,11 +1317,19 @@ fn run_helm(action: HelmCliAction) -> anyhow::Result<()> {
         }
 
         HelmCliAction::Status { release, namespace } => {
-            let releases = dao.list(Some(&namespace)).map_err(|e| anyhow::anyhow!("{e}"))?;
+            let releases = dao
+                .list(Some(&namespace))
+                .map_err(|e| anyhow::anyhow!("{e}"))?;
             let rel = releases
                 .into_iter()
                 .find(|r| r.name == release)
-                .ok_or_else(|| anyhow::anyhow!("release '{}' not found in namespace '{}'", release, namespace))?;
+                .ok_or_else(|| {
+                    anyhow::anyhow!(
+                        "release '{}' not found in namespace '{}'",
+                        release,
+                        namespace
+                    )
+                })?;
             println!("Name:        {}", rel.name);
             println!("Namespace:   {}", rel.namespace);
             println!("Chart:       {}", rel.chart);
@@ -1329,7 +1339,11 @@ fn run_helm(action: HelmCliAction) -> anyhow::Result<()> {
             println!("Updated:     {}", rel.updated);
         }
 
-        HelmCliAction::History { release, namespace, max } => {
+        HelmCliAction::History {
+            release,
+            namespace,
+            max,
+        } => {
             let history = dao
                 .history(&release, &namespace)
                 .map_err(|e| anyhow::anyhow!("{e}"))?;
@@ -1346,7 +1360,11 @@ fn run_helm(action: HelmCliAction) -> anyhow::Result<()> {
             }
         }
 
-        HelmCliAction::Values { release, namespace, output } => {
+        HelmCliAction::Values {
+            release,
+            namespace,
+            output,
+        } => {
             let raw = run_helm_bin_capture(&[
                 "get", "values", &release, "-n", &namespace, "--output", &output,
             ]);
@@ -1373,7 +1391,14 @@ fn run_helm(action: HelmCliAction) -> anyhow::Result<()> {
             println!("{sanitized}");
         }
 
-        HelmCliAction::Install { name, chart, namespace, values, set, dry_run } => {
+        HelmCliAction::Install {
+            name,
+            chart,
+            namespace,
+            values,
+            set,
+            dry_run,
+        } => {
             let mut args = vec!["install", &name, &chart, "-n", &namespace];
             let values_str = values.as_deref().unwrap_or("");
             if !values_str.is_empty() {
@@ -1389,7 +1414,15 @@ fn run_helm(action: HelmCliAction) -> anyhow::Result<()> {
             run_helm_bin(&args);
         }
 
-        HelmCliAction::Upgrade { release, chart, namespace, values, set, install, dry_run } => {
+        HelmCliAction::Upgrade {
+            release,
+            chart,
+            namespace,
+            values,
+            set,
+            install,
+            dry_run,
+        } => {
             let mut args = vec!["upgrade", &release, &chart, "-n", &namespace];
             let values_str = values.as_deref().unwrap_or("");
             if !values_str.is_empty() {
@@ -1408,7 +1441,12 @@ fn run_helm(action: HelmCliAction) -> anyhow::Result<()> {
             run_helm_bin(&args);
         }
 
-        HelmCliAction::Rollback { release, revision, namespace, dry_run } => {
+        HelmCliAction::Rollback {
+            release,
+            revision,
+            namespace,
+            dry_run,
+        } => {
             let rev_str;
             let mut args = vec!["rollback", &release];
             if let Some(rev) = revision {
@@ -1422,7 +1460,11 @@ fn run_helm(action: HelmCliAction) -> anyhow::Result<()> {
             run_helm_bin(&args);
         }
 
-        HelmCliAction::Uninstall { release, namespace, dry_run } => {
+        HelmCliAction::Uninstall {
+            release,
+            namespace,
+            dry_run,
+        } => {
             let mut args = vec!["uninstall", &release, "-n", &namespace];
             if dry_run {
                 args.push("--dry-run");
@@ -1701,9 +1743,7 @@ fn run_mcp(
     rt.block_on(async {
         let client = build_kube_client(context).await?;
 
-        let meta_context = context
-            .clone()
-            .unwrap_or_else(|| "default".to_string());
+        let meta_context = context.clone().unwrap_or_else(|| "default".to_string());
 
         let dirs = ConfigDirs::resolve()?;
         let cfg = config::load(&dirs.config_file()).unwrap_or_default();

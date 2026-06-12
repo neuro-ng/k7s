@@ -1021,7 +1021,9 @@ impl App {
                             let container = rest[..nl].to_owned();
                             let text = &rest[nl + 1..];
                             for line in text.lines() {
-                                self.log.model.push(line.to_owned(), Some(container.clone()));
+                                self.log
+                                    .model
+                                    .push(line.to_owned(), Some(container.clone()));
                             }
                             self.log.scroll_down(usize::MAX);
                         }
@@ -1302,7 +1304,15 @@ impl App {
             Some(f) => f,
             None => return,
         };
-        let namespace = self.namespace.clone();
+        // Cluster-scoped resources (namespaced == false) must always be watched
+        // without a namespace filter — the K8s API rejects namespace-scoped requests
+        // for them, and the factory would return only the one object matching by name.
+        let namespaced = self.browser.as_ref().map(|b| b.namespaced).unwrap_or(true);
+        let namespace = if namespaced {
+            self.namespace.clone()
+        } else {
+            None
+        };
         let tx = self.watcher_ready_tx.clone();
         tokio::spawn(async move {
             let factory = factory.read().await;
@@ -1986,8 +1996,7 @@ fn handle_key_event(app: &mut App, key: crossterm::event::KeyEvent) {
                 let name2 = name.clone();
                 let ns2 = namespace.clone();
                 tokio::spawn(async move {
-                    let (metas, scope) =
-                        crate::ai::context::build_helm_context(&name2, &ns2).await;
+                    let (metas, scope) = crate::ai::context::build_helm_context(&name2, &ns2).await;
                     let _ = tx.send((metas, scope)).await;
                 });
                 app.flash(
@@ -1996,8 +2005,7 @@ fn handle_key_event(app: &mut App, key: crossterm::event::KeyEvent) {
                 );
             }
             HelmAction::Install { .. } => {
-                app.helm_install_dialog =
-                    Some(crate::ui::dialog::HelmInstallDialog::new("", ""));
+                app.helm_install_dialog = Some(crate::ui::dialog::HelmInstallDialog::new("", ""));
                 app.mode = Mode::HelmInstall;
             }
             HelmAction::Upgrade { release, chart } => {
@@ -2300,8 +2308,7 @@ fn handle_key_event(app: &mut App, key: crossterm::event::KeyEvent) {
         match action {
             LogAction::Close => app.mode = Mode::Browse,
             LogAction::SwitchContainer(container) => {
-                if let (Some(client), Some(ns)) =
-                    (app.kube_client.clone(), app.log_pod_ns.clone())
+                if let (Some(client), Some(ns)) = (app.kube_client.clone(), app.log_pod_ns.clone())
                 {
                     let pod = app.log.pod_name.clone();
                     let tail = app.config.k7s.logger.tail as i64;
@@ -2333,9 +2340,7 @@ fn handle_key_event(app: &mut App, key: crossterm::event::KeyEvent) {
                             }
                             Err(e) => {
                                 let _ = op_tx
-                                    .send(OpResult::Err(format!(
-                                        "Logs for {container2}: {e}"
-                                    )))
+                                    .send(OpResult::Err(format!("Logs for {container2}: {e}")))
                                     .await;
                             }
                         }
@@ -2821,10 +2826,7 @@ fn handle_key_event(app: &mut App, key: crossterm::event::KeyEvent) {
                     // Enter on a namespace row switches the active namespace filter.
                     if let Some(name) = browser.selected_name() {
                         app.namespace = Some(name.clone());
-                        app.flash(
-                            format!("Namespace: {name}"),
-                            Duration::from_secs(2),
-                        );
+                        app.flash(format!("Namespace: {name}"), Duration::from_secs(2));
                         app.navigate("pods");
                         app.start_browser_watcher();
                     }
@@ -2915,7 +2917,10 @@ fn handle_key_event(app: &mut App, key: crossterm::event::KeyEvent) {
                         };
                         let _ = tx.send((title, content)).await;
                     });
-                    app.flash(format!("Loading describe for {flash_name}…"), Duration::from_secs(2));
+                    app.flash(
+                        format!("Loading describe for {flash_name}…"),
+                        Duration::from_secs(2),
+                    );
                     app.mode = Mode::Describe;
                 }
             }
@@ -3159,7 +3164,10 @@ fn handle_key_event(app: &mut App, key: crossterm::event::KeyEvent) {
                         };
                         let _ = tx.send((title, content)).await;
                     });
-                    app.flash(format!("Loading YAML for {flash_name}…"), Duration::from_secs(2));
+                    app.flash(
+                        format!("Loading YAML for {flash_name}…"),
+                        Duration::from_secs(2),
+                    );
                     app.mode = Mode::Describe;
                 }
             }
@@ -3218,13 +3226,18 @@ fn handle_key_event(app: &mut App, key: crossterm::event::KeyEvent) {
                             .selected_namespace()
                             .or_else(|| app.namespace.clone())
                             .unwrap_or_else(|| "default".to_owned());
-                        app.pending_shell_exec =
-                            Some(crate::exec::ShellExec::new(name, ns));
+                        app.pending_shell_exec = Some(crate::exec::ShellExec::new(name, ns));
                     } else {
-                        app.flash("Select a pod to open a shell".to_owned(), Duration::from_secs(2));
+                        app.flash(
+                            "Select a pod to open a shell".to_owned(),
+                            Duration::from_secs(2),
+                        );
                     }
                 } else {
-                    app.flash("Shell only available for pods".to_owned(), Duration::from_secs(2));
+                    app.flash(
+                        "Shell only available for pods".to_owned(),
+                        Duration::from_secs(2),
+                    );
                 }
             }
         }
@@ -3698,10 +3711,32 @@ fn vela_missing_hint(app: &mut App) -> bool {
 
 /// Discriminator for `execute_helm_subprocess`.
 enum HelmSubcommand {
-    Uninstall { name: String, namespace: String },
-    Rollback { name: String, namespace: String, revision: u64 },
-    Install { name: String, chart: String, namespace: String, values_file: Option<String>, set_args: Vec<String>, dry_run: bool },
-    Upgrade { release: String, chart: String, namespace: String, values_file: Option<String>, set_args: Vec<String>, install_flag: bool, dry_run: bool },
+    Uninstall {
+        name: String,
+        namespace: String,
+    },
+    Rollback {
+        name: String,
+        namespace: String,
+        revision: u64,
+    },
+    Install {
+        name: String,
+        chart: String,
+        namespace: String,
+        values_file: Option<String>,
+        set_args: Vec<String>,
+        dry_run: bool,
+    },
+    Upgrade {
+        release: String,
+        chart: String,
+        namespace: String,
+        values_file: Option<String>,
+        set_args: Vec<String>,
+        install_flag: bool,
+        dry_run: bool,
+    },
 }
 
 /// Run a `helm` subprocess in a background task; flash the result via `op_result_tx`.
@@ -3709,10 +3744,19 @@ fn execute_helm_subprocess(app: &mut App, cmd: HelmSubcommand) {
     let tx = app.op_result_tx.clone();
     let (args, success_msg): (Vec<String>, String) = match cmd {
         HelmSubcommand::Uninstall { name, namespace } => (
-            vec!["uninstall".into(), name.clone(), "-n".into(), namespace.clone()],
+            vec![
+                "uninstall".into(),
+                name.clone(),
+                "-n".into(),
+                namespace.clone(),
+            ],
             format!("Helm release {namespace}/{name} uninstalled"),
         ),
-        HelmSubcommand::Rollback { name, namespace, revision } => {
+        HelmSubcommand::Rollback {
+            name,
+            namespace,
+            revision,
+        } => {
             let mut a = vec!["rollback".into(), name.clone()];
             if revision > 0 {
                 a.push(revision.to_string());
@@ -3720,8 +3764,21 @@ fn execute_helm_subprocess(app: &mut App, cmd: HelmSubcommand) {
             a.extend(["-n".into(), namespace.clone()]);
             (a, format!("Rolled back {name} in {namespace}"))
         }
-        HelmSubcommand::Install { name, chart, namespace, values_file, set_args, dry_run } => {
-            let mut a = vec!["install".into(), name.clone(), chart.clone(), "-n".into(), namespace.clone()];
+        HelmSubcommand::Install {
+            name,
+            chart,
+            namespace,
+            values_file,
+            set_args,
+            dry_run,
+        } => {
+            let mut a = vec![
+                "install".into(),
+                name.clone(),
+                chart.clone(),
+                "-n".into(),
+                namespace.clone(),
+            ];
             if let Some(f) = values_file {
                 a.extend(["-f".into(), f]);
             }
@@ -3733,8 +3790,22 @@ fn execute_helm_subprocess(app: &mut App, cmd: HelmSubcommand) {
             }
             (a, format!("Installed {name} from {chart}"))
         }
-        HelmSubcommand::Upgrade { release, chart, namespace, values_file, set_args, install_flag, dry_run } => {
-            let mut a = vec!["upgrade".into(), release.clone(), chart.clone(), "-n".into(), namespace.clone()];
+        HelmSubcommand::Upgrade {
+            release,
+            chart,
+            namespace,
+            values_file,
+            set_args,
+            install_flag,
+            dry_run,
+        } => {
+            let mut a = vec![
+                "upgrade".into(),
+                release.clone(),
+                chart.clone(),
+                "-n".into(),
+                namespace.clone(),
+            ];
             if let Some(f) = values_file {
                 a.extend(["-f".into(), f]);
             }
@@ -4145,8 +4216,10 @@ fn render_footer(frame: &mut Frame, app: &App, area: Rect) {
 
     if app.mode == Mode::Describe {
         frame.render_widget(
-            Paragraph::new("  ↑↓/jk scroll  PgUp/u page up  PgDn/d page down  g top  G bottom  q/Esc close")
-                .style(Style::default().fg(Color::DarkGray)),
+            Paragraph::new(
+                "  ↑↓/jk scroll  PgUp/u page up  PgDn/d page down  g top  G bottom  q/Esc close",
+            )
+            .style(Style::default().fg(Color::DarkGray)),
             area,
         );
         return;

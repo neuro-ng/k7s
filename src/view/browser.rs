@@ -27,6 +27,8 @@ pub struct BrowserView {
     pub title: String,
     /// GVR of the resource type — used for drill-down routing (e.g. pods → containers).
     pub resource_gvr: Option<Gvr>,
+    /// Whether this resource is namespace-scoped (false = cluster-scoped, e.g. Namespace, Node).
+    pub namespaced: bool,
     /// The renderer for this resource type.
     renderer: Box<dyn Renderer>,
     /// The table widget that handles display and selection.
@@ -54,6 +56,7 @@ impl BrowserView {
         Self {
             title,
             resource_gvr: None,
+            namespaced: true,
             renderer,
             table: TableWidget::new(columns),
             prev_versions: HashMap::new(),
@@ -303,6 +306,7 @@ pub fn browser_for_resource(alias: &str, registry: &crate::dao::Registry) -> Opt
 
     let mut view = BrowserView::new(title, renderer);
     view.resource_gvr = Some(gvr_copy);
+    view.namespaced = namespaced;
     Some(view)
 }
 

@@ -307,10 +307,7 @@ pub async fn build_vela_context(
 /// `SafeMetadata` entries safe to send to the LLM.  Values are run through
 /// the `sanitize_helm_values` key-name + value-content redaction rules so
 /// no passwords, tokens, or connection strings reach the AI.
-pub async fn build_helm_context(
-    name: &str,
-    namespace: &str,
-) -> (Vec<SafeMetadata>, ContextScope) {
+pub async fn build_helm_context(name: &str, namespace: &str) -> (Vec<SafeMetadata>, ContextScope) {
     let scope = ContextScope::new("helm", name, Some(namespace));
     let mut items: Vec<SafeMetadata> = Vec::new();
 
