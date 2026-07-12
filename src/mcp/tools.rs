@@ -288,7 +288,7 @@ fn get_metrics(state: Arc<McpState>) -> Tool {
         let snapshot: MetricsSnapshot = mc.fetch().await;
 
         let mut pod_list: Vec<(&String, &MetricSample)> = snapshot.pods.iter().collect();
-        pod_list.sort_by(|a, b| b.1.cpu_m.cmp(&a.1.cpu_m));
+        pod_list.sort_by_key(|p| std::cmp::Reverse(p.1.cpu_m));
 
         let pods: Vec<Value> = pod_list
             .into_iter()

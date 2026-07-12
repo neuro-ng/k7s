@@ -43,7 +43,7 @@ impl CronJobDao {
             .ok_or_else(|| anyhow::anyhow!("cronjob {name} has no job template spec"))?;
 
         // Generate a unique name for the manually-triggered job.
-        let job_name = format!("{}-manual-{}", name, &uuid_suffix());
+        let job_name = format!("{}-manual-{}", name, uuid_suffix());
 
         let job = Job {
             metadata: ObjectMeta {
