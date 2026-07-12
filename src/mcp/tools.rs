@@ -232,11 +232,11 @@ fn get_events(state: Arc<McpState>) -> Tool {
                     e.get("involvedObject")
                         .and_then(|o| o.get("name"))
                         .and_then(|n| n.as_str())
-                        .map_or(false, |n| n == rn)
+                        == Some(rn)
                 })
             })
             .take(20)
-            .map(|e| sanitize_event(e))
+            .map(sanitize_event)
             .collect();
 
         Ok(json_result(

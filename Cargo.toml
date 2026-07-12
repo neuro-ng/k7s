@@ -1,6 +1,6 @@
 [package]
 name = "k7s"
-version = "0.1.3"
+version = "0.1.4"
 edition = "2021"
 rust-version = "1.77"
 description = "Performance-focused, security-first Kubernetes TUI with AI-powered cluster analysis"

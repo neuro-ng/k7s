@@ -1348,8 +1348,8 @@ fn run_helm(action: HelmCliAction) -> anyhow::Result<()> {
                 .history(&release, &namespace)
                 .map_err(|e| anyhow::anyhow!("{e}"))?;
             println!(
-                "{:<10} {:<12} {:<30} {:<12} {:<30} {}",
-                "REVISION", "STATUS", "CHART", "APP VERSION", "UPDATED", "DESCRIPTION"
+                "{:<10} {:<12} {:<30} {:<12} {:<30} DESCRIPTION",
+                "REVISION", "STATUS", "CHART", "APP VERSION", "UPDATED"
             );
             println!("{}", "-".repeat(120));
             for e in history.iter().take(max) {

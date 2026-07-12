@@ -183,9 +183,9 @@ mod tests {
     #[test]
     fn resource_uris_use_k8s_scheme() {
         // Verify the URI strings match the documented scheme.
-        assert_eq!("k8s://cluster/health".starts_with("k8s://"), true);
-        assert_eq!("k8s://cluster/namespaces".starts_with("k8s://"), true);
-        assert_eq!("k8s://cluster/history".starts_with("k8s://"), true);
+        assert!("k8s://cluster/health".starts_with("k8s://"));
+        assert!("k8s://cluster/namespaces".starts_with("k8s://"));
+        assert!("k8s://cluster/history".starts_with("k8s://"));
     }
 
     #[test]
