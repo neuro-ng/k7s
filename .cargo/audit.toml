@@ -1,0 +1,8 @@
+[advisories]
+# rsa 0.9.x — Marvin Attack timing side-channel (RUSTSEC-2023-0071).
+# No fixed version is available from the rsa crate authors.
+# This crate is pulled in transitively by openidconnect and jsonwebtoken via
+# rs-fast-mcp. It is not used in any path that processes user-controlled RSA
+# private keys, so the practical risk here is low. Re-evaluate if rsa 0.10+
+# ships a fix.
+ignore = ["RUSTSEC-2023-0071"]
